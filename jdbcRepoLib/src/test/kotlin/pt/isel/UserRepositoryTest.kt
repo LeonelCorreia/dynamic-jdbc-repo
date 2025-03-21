@@ -19,6 +19,12 @@ class UserRepositoryTest {
     @Test
     fun `getAll should return all users`() {
         val users: List<User> = repository.getAll()
+        users.forEach {
+            println(it.id)
+            println(it.name)
+            println(it.email)
+            println(it.birthdate)
+        }
         assertEquals(3, users.size)
     }
 

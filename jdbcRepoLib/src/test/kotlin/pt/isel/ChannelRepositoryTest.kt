@@ -56,6 +56,17 @@ class ChannelRepositoryTest {
     @Test
     fun `getAll should return all channels`() {
         val channels: List<Channel> = repository.getAll()
+        channels.forEach {
+            println("--------------------------------")
+            println(it.name)
+            println(it.type)
+            println(it.createdAt)
+            println(it.isArchived)
+            println(it.maxMessageLength)
+            println(it.maxMembers)
+            println(it.isReadOnly)
+            println(it.lastMessageTimestamp)
+        }
         assertEquals(6, channels.size)
         assertTrue(channelRandom in channels)
     }

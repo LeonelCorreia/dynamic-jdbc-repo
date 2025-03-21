@@ -18,6 +18,13 @@ class MessageRepositoryTest {
     @Test
     fun `getAll should return all messages`() {
         val users: List<Message> = repository.getAll()
+        users.forEach {
+            println(it.channel.name)
+            println(it.user.name)
+            println(it.id)
+            println(it.content) RReR
+                println(it.timestamp)
+        }
         assertEquals(20, users.size)
     }
 
