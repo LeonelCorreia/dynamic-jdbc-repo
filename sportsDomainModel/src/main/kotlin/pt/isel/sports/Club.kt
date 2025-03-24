@@ -7,6 +7,7 @@ import pt.isel.Table
 @Table("clubs")
 data class Club(
     @Pk
+    val id: Int,
     val name: String,
     @Column("year")
     val foundedYear: Int,
