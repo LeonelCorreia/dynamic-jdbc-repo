@@ -14,3 +14,4 @@ rootProject.name = "jdbcRepo"
 include("jdbcRepoLib")
 include("jdbcRepoMicrobench")
 include("chatDomainModel")
+include("sportsDomainModel")

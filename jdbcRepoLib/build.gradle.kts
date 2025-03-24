@@ -18,6 +18,7 @@ dependencies {
 
     // Domain model for unit testing
     testImplementation(project(":chatDomainModel"))
+    testImplementation(project(":sportsDomainModel"))
 
     // Use the Kotlin JUnit 5 integration.
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
