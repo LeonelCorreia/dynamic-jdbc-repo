@@ -5,10 +5,10 @@ import pt.isel.Pk
 import pt.isel.Table
 
 @Table("clubs")
-data class Club (
+data class Club(
     @Pk
-    val name : String,
+    val name: String,
     @Column("year")
     val foundedYear: Int,
-    val director : Director
+    val director: Director,
 )
