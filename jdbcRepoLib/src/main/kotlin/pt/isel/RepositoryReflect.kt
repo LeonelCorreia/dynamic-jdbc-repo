@@ -1,14 +1,13 @@
 package pt.isel
 
-import java.sql.Connection
-import java.sql.Date
-import java.sql.ResultSet
+import java.sql.*
 import kotlin.reflect.KClass
 import kotlin.reflect.KParameter
 import kotlin.reflect.KProperty
 import kotlin.reflect.full.declaredMemberProperties
 import kotlin.reflect.full.findAnnotations
 import kotlin.reflect.full.primaryConstructor
+import kotlin.reflect.jvm.internal.impl.metadata.ProtoBuf.Type
 
 class RepositoryReflect<K : Any, T : Any>(
     private val connection: Connection,
@@ -90,11 +89,80 @@ class RepositoryReflect<K : Any, T : Any>(
     }
 
     override fun update(entity: T) {
-        TODO("Not yet implemented")
+        val updates = constructor.parameters
+            .joinToString(", ") { param ->
+                val columnName = param.findAnnotations(Column::class).firstOrNull()?.name ?: param.name
+                "$columnName = ?"
+            }
+        val query = "UPDATE $tableName SET $updates WHERE ${pk.name} = ?"
+
+        connection.prepareStatement(query).use { preparedStatement ->
+            var index = 1
+            constructor.parameters
+                .filter { param -> param.findAnnotations(Pk::class).isEmpty() }
+                .forEach { param ->
+                    val prop = domainKlass.declaredMemberProperties.first { it.name == param.name }
+                    val value = prop.getter.call(entity)
+                    index = setPreparedStatementValue(preparedStatement, index, value, prop)
+                }
+            val pkValue = pk.getter.call(entity)
+            preparedStatement.setObject(index, pkValue)
+            preparedStatement.executeUpdate()
+        }
+    }
+
+    private fun setPreparedStatementValue(
+        preparedStatement: PreparedStatement,
+        index: Int,
+        value: Any?,
+        prop: KProperty<*>
+    ): Int {
+        return when {
+            (prop.returnType.classifier as KClass<*>).java.isEnum -> {
+                val enumValue = value as Enum<*>
+                preparedStatement.setObject(index, enumValue.name, Types.OTHER) // Types.OTHER is for PostgreSQL
+                index + 1
+            }
+            prop.isPrimitiveOrStringOrDate() -> {
+                when (value) {
+                    is Boolean -> preparedStatement.setBoolean(index, value)
+                    is Int -> preparedStatement.setInt(index, value)
+                    is Long -> preparedStatement.setLong(index, value)
+                    is String -> preparedStatement.setString(index, value)
+                    is Date -> preparedStatement.setDate(index, value)
+                    else -> throw Exception("Unsupported type ${prop.returnType.classifier}")
+                }
+                index + 1
+            }
+            else -> {
+                check(value != null) { "Nested entity is null for property ${prop.name}" }
+                setPreparedStatementValues(preparedStatement, index, value, prop.returnType.classifier as KClass<*>)
+            }
+        }
+    }
+
+    private fun setPreparedStatementValues(
+        preparedStatement: PreparedStatement,
+        startIndex: Int,
+        entity: Any,
+        entityKlass: KClass<*>
+    ): Int {
+        var index = startIndex
+        entityKlass.declaredMemberProperties
+            .first { prop -> prop.findAnnotations(Pk::class).isNotEmpty() }
+            .let { prop ->
+                val value = prop.getter.call(entity)
+                index = setPreparedStatementValue(preparedStatement, index, value, prop)
+            }
+        return index
     }
 
     override fun deleteById(id: K) {
-        TODO("Not yet implemented")
+        val query = "DELETE FROM $tableName WHERE ${pk.name} = ?"
+        connection.prepareStatement(query).use { preparedStatement ->
+            preparedStatement.setObject(1, id)
+            preparedStatement.executeUpdate()
+        }
     }
 
     private fun mapRowToEntity(rs: ResultSet): T {
