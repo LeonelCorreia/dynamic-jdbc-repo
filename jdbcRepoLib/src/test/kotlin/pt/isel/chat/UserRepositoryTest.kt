@@ -1,6 +1,7 @@
-package pt.isel
+package pt.isel.chat
 
-import pt.isel.chat.User
+import pt.isel.Repository
+import pt.isel.RepositoryReflect
 import java.sql.Connection
 import java.sql.Date
 import java.sql.DriverManager
@@ -19,12 +20,6 @@ class UserRepositoryTest {
     @Test
     fun `getAll should return all users`() {
         val users: List<User> = repository.getAll()
-        users.forEach {
-            println(it.id)
-            println(it.name)
-            println(it.email)
-            println(it.birthdate)
-        }
         assertEquals(3, users.size)
     }
 

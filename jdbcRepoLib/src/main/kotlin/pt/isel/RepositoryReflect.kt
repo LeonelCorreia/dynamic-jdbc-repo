@@ -1,3 +1,5 @@
+@file:Suppress("ktlint:standard:no-wildcard-imports")
+
 package pt.isel
 
 import java.sql.*
@@ -7,7 +9,6 @@ import kotlin.reflect.KProperty
 import kotlin.reflect.full.declaredMemberProperties
 import kotlin.reflect.full.findAnnotations
 import kotlin.reflect.full.primaryConstructor
-import kotlin.reflect.jvm.internal.impl.metadata.ProtoBuf.Type
 
 class RepositoryReflect<K : Any, T : Any>(
     private val connection: Connection,
@@ -89,11 +90,12 @@ class RepositoryReflect<K : Any, T : Any>(
     }
 
     override fun update(entity: T) {
-        val updates = constructor.parameters
-            .joinToString(", ") { param ->
-                val columnName = param.findAnnotations(Column::class).firstOrNull()?.name ?: param.name
-                "$columnName = ?"
-            }
+        val updates =
+            constructor.parameters
+                .joinToString(", ") { param ->
+                    val columnName = param.findAnnotations(Column::class).firstOrNull()?.name ?: param.name
+                    "$columnName = ?"
+                }
         val query = "UPDATE $tableName SET $updates WHERE ${pk.name} = ?"
 
         connection.prepareStatement(query).use { preparedStatement ->
@@ -115,9 +117,9 @@ class RepositoryReflect<K : Any, T : Any>(
         preparedStatement: PreparedStatement,
         index: Int,
         value: Any?,
-        prop: KProperty<*>
-    ): Int {
-        return when {
+        prop: KProperty<*>,
+    ): Int =
+        when {
             (prop.returnType.classifier as KClass<*>).java.isEnum -> {
                 val enumValue = value as Enum<*>
                 preparedStatement.setObject(index, enumValue.name, Types.OTHER) // Types.OTHER is for PostgreSQL
@@ -139,13 +141,12 @@ class RepositoryReflect<K : Any, T : Any>(
                 setPreparedStatementValues(preparedStatement, index, value, prop.returnType.classifier as KClass<*>)
             }
         }
-    }
 
     private fun setPreparedStatementValues(
         preparedStatement: PreparedStatement,
         startIndex: Int,
         entity: Any,
-        entityKlass: KClass<*>
+        entityKlass: KClass<*>,
     ): Int {
         var index = startIndex
         entityKlass.declaredMemberProperties

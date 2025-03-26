@@ -11,3 +11,16 @@ services:
       - POSTGRES_DB=db
     ports:
       - "5439:5432" # Map the host port 5439 to the container port 5432
+
+  sports-db:
+    container_name: sports-db
+    build:
+      # Change to parent folder jdbcRepoLib
+      context: ../../..
+      dockerfile: src/test/docker/Dockerfile-sports-db
+    environment:
+      - POSTGRES_USER=dbuser
+      - POSTGRES_PASSWORD=changeit
+      - POSTGRES_DB=db
+    ports:
+      - "5434:5432" # Map the host port 5433 to the container port 5432

@@ -1,6 +1,7 @@
-package pt.isel
+package pt.isel.chat
 
-import pt.isel.chat.Message
+import pt.isel.Repository
+import pt.isel.RepositoryReflect
 import pt.isel.chat.dao.ChannelRepositoryJdbc
 import java.sql.Connection
 import java.sql.DriverManager
@@ -18,13 +19,6 @@ class MessageRepositoryTest {
     @Test
     fun `getAll should return all messages`() {
         val users: List<Message> = repository.getAll()
-        users.forEach {
-            println(it.channel.name)
-            println(it.user.name)
-            println(it.id)
-            println(it.content) RReR
-                println(it.timestamp)
-        }
         assertEquals(20, users.size)
     }
 

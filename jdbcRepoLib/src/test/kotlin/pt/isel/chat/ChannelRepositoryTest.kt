@@ -1,8 +1,8 @@
-package pt.isel
+package pt.isel.chat
 
 import org.junit.jupiter.api.BeforeEach
-import pt.isel.chat.Channel
-import pt.isel.chat.ChannelType
+import pt.isel.Repository
+import pt.isel.RepositoryReflect
 import pt.isel.chat.dao.ChannelRepositoryJdbc
 import java.sql.Connection
 import java.sql.DriverManager
@@ -56,17 +56,6 @@ class ChannelRepositoryTest {
     @Test
     fun `getAll should return all channels`() {
         val channels: List<Channel> = repository.getAll()
-        channels.forEach {
-            println("--------------------------------")
-            println(it.name)
-            println(it.type)
-            println(it.createdAt)
-            println(it.isArchived)
-            println(it.maxMessageLength)
-            println(it.maxMembers)
-            println(it.isReadOnly)
-            println(it.lastMessageTimestamp)
-        }
         assertEquals(6, channels.size)
         assertTrue(channelRandom in channels)
     }

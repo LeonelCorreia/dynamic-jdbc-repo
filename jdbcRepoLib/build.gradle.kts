@@ -37,6 +37,7 @@ tasks.named<Test>("test") {
     // Use JUnit Platform for unit tests.
     useJUnitPlatform()
     environment("DB_URL", "jdbc:postgresql://localhost:5439/db?user=dbuser&password=changeit")
+    environment("DB_URL_SPORTS", "jdbc:postgresql://localhost:5434/db?user=dbuser&password=changeit")
     dependsOn(":jdbcRepoLib:dbTestsWait")
     finalizedBy(":jdbcRepoLib:dbTestsDown")
 }
@@ -63,15 +64,15 @@ task<Exec>("dbTestsUp") {
         "-d",
         "--build",
         "--force-recreate",
-        "chat-db",
     )
 }
 
 task<Exec>("dbTestsWait") {
     commandLine("docker", "exec", "chat-db", "/app/bin/wait-for-postgres.sh", "localhost")
+    commandLine("docker", "exec", "sports-db", "/app/bin/wait-for-postgres.sh", "localhost")
     dependsOn("dbTestsUp")
 }
 
 task<Exec>("dbTestsDown") {
-    commandLine("docker", "compose", "-p", "jdbc-repo", "-f", dockerComposePath, "down", "chat-db")
+    commandLine("docker", "compose", "-p", "jdbc-repo", "-f", dockerComposePath, "down")
 }

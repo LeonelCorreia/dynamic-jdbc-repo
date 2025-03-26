@@ -4,8 +4,8 @@ import pt.isel.Pk
 import pt.isel.Table
 import java.sql.Date
 
-@Table("directors")
-data class Director(
+@Table("presidents")
+data class President(
     @Pk
     val id: Int,
     val name: String,

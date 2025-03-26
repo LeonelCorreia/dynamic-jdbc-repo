@@ -11,5 +11,5 @@ data class Club(
     val name: String,
     @Column("year")
     val foundedYear: Int,
-    val director: Director,
+    val president: President,
 )

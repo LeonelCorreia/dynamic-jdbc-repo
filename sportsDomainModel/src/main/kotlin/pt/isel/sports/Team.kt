@@ -9,8 +9,8 @@ data class Team(
     @Pk
     val id: Int,
     val name: String,
-    @Column("club_name")
+    @Column("club")
     val teamClub: Club,
-    @Column("sport_name")
+    @Column("sport")
     val teamSport: Sport,
 )

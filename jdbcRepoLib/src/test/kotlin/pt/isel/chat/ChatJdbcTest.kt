@@ -1,10 +1,6 @@
-package pt.isel
+package pt.isel.chat
 
 import org.slf4j.LoggerFactory
-import pt.isel.chat.Channel
-import pt.isel.chat.ChannelType
-import pt.isel.chat.Message
-import pt.isel.chat.User
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.ResultSet
