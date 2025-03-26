@@ -4,7 +4,10 @@ import org.junit.jupiter.api.Test
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
 import java.sql.Connection
+import java.sql.Date
 import java.sql.DriverManager
+import java.sql.Statement.RETURN_GENERATED_KEYS
+import java.time.LocalDate
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNotSame
@@ -42,10 +45,24 @@ class PresidentRepositoryTests {
 
     @Test
     fun `delete a president`() {
-        val andreVillasBoas =
-            repository.getAll().first { it.name.contains("ndré Villas-Boas") }
-        repository.deleteById(andreVillasBoas.id)
-        val retrieved = repository.getById(andreVillasBoas.id)
-        assertNull(retrieved)
+        val sql = "INSERT INTO presidents (name, birthdate) VALUES (?, ?)"
+        val values =
+            arrayOf<Any>(
+                "Bruno Carvalho",
+                Date.valueOf(LocalDate.of(1972, 2, 8)),
+            )
+        val pk =
+            connection.prepareStatement(sql, RETURN_GENERATED_KEYS).use { stmt ->
+                values.forEachIndexed { index, it -> stmt.setObject(index + 1, it) }
+                stmt.executeUpdate()
+                stmt.generatedKeys.use { rs ->
+                    rs.next()
+                    rs.getInt(1)
+                }
+            }
+        assertEquals(5, repository.getAll().size)
+        repository.deleteById(pk)
+        assertNull(repository.getById(pk))
+        assertEquals(4, repository.getAll().size)
     }
 }

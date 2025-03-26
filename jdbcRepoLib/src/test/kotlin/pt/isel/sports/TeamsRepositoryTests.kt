@@ -30,7 +30,7 @@ class TeamsRepositoryTests {
 
     @Test
     fun `update a team`() {
-        val team = repository.getAll().first { it.name.contains("Benfica Football") }
+        val team = repository.getAll().first { it.name.contains("Benfica Soccer") }
         val updatedTeam = team.copy(name = "Benfica Football")
         repository.update(updatedTeam)
         val retrieved = repository.getById(team.id)
@@ -64,7 +64,8 @@ class TeamsRepositoryTests {
                         rs.getInt(1)
                     }
                 }
-        assertEquals(10, repository.getAll().size)
+        val teams = repository.getAll()
+        assertEquals(10, teams.size)
         repository.deleteById(pk)
         assertEquals(9, repository.getAll().size)
     }

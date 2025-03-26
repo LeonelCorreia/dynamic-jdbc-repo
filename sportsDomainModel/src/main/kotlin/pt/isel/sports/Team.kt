@@ -6,8 +6,7 @@ import pt.isel.Table
 
 @Table("teams")
 data class Team(
-    @Pk
-    val id: Int,
+    @Pk val id: Int,
     val name: String,
     @Column("club")
     val teamClub: Club,

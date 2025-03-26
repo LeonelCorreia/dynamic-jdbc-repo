@@ -20,7 +20,7 @@ VALUES ('Sporting', 1902, 1),
 -- Insert teams
 INSERT INTO teams (name, sport, club)
 VALUES ('Sporting Football', 'Football', 1),
-       ('Benfica Football', 'Football', 2),
+       ('Benfica Soccer', 'Football', 2),
        ('Porto Football', 'Football', 3),
        ('Sporting Basketball', 'Basketball', 1),
        ('Benfica Basketball', 'Basketball', 2),
