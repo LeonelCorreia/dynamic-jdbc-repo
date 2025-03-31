@@ -18,18 +18,26 @@ private data class SetPropInfo(
 
 private data class GetPropInfo(
     val kParam: KParameter,
-    val getter: (ResultSet) -> Any,
+    val getter: ResultSet.() -> Any,
 )
 
 class RepositoryReflect<K : Any, T : Any>(
     private val connection: Connection,
-    private val domainKlass: KClass<T>,
+    domainKlass: KClass<T>,
 ) : Repository<K, T> {
     companion object {
         private val auxRepos = mutableMapOf<KClass<*>, RepositoryReflect<Any, Any>>()
     }
 
     private var pk: KProperty<*>
+    private val classifiers = mutableMapOf<KProperty<*>, KClass<*>>()
+
+    private val tableName =
+        domainKlass
+            .findAnnotations(Table::class)
+            .firstOrNull()
+            ?.name
+            ?: throw IllegalArgumentException("Missing @Table annotation in class $domainKlass")
 
     init {
         domainKlass
@@ -37,13 +45,15 @@ class RepositoryReflect<K : Any, T : Any>(
             .also {
                 pk = it.first { prop -> prop.findAnnotations(Pk::class).isNotEmpty() }
             }.forEach { prop ->
-                val entityType =
+                val classifier =
                     (prop.returnType.classifier as? KClass<Any>)
                         ?: throw IllegalStateException("Invalid classifier for property: ${prop.name}")
 
-                if (!prop.isPrimitiveOrStringOrDate() && !prop.isEnum()) {
-                    val auxRepository = RepositoryReflect<Any, Any>(connection, entityType)
-                    auxRepos[entityType] = auxRepository
+                classifiers[prop] = classifier
+
+                if (!classifier.isPrimitiveOrStringOrDate() && !classifier.isEnum()) {
+                    val auxRepository = RepositoryReflect<Any, Any>(connection, classifier)
+                    auxRepos[classifier] = auxRepository
                 }
             }
     }
@@ -51,7 +61,7 @@ class RepositoryReflect<K : Any, T : Any>(
     private val constructor =
         domainKlass
             .primaryConstructor
-            ?: throw Exception("No suitable constructor found for $domainKlass")
+            ?: throw IllegalStateException("No suitable constructor found for $domainKlass")
 
     private val props: Map<GetPropInfo, SetPropInfo?> =
         constructor.parameters.let {
@@ -59,13 +69,19 @@ class RepositoryReflect<K : Any, T : Any>(
                 .withIndex()
                 .associate { (index, constParam) ->
                     val columnName =
-                        constParam.findAnnotations(Column::class).firstOrNull()?.name ?: constParam.name ?: ""
-                    val prop = domainKlass.declaredMemberProperties.first { prop -> prop.name == constParam.name }
+                        constParam.findAnnotations(Column::class).firstOrNull()?.name
+                            ?: constParam.name
+                            ?: throw IllegalStateException("Missing name for column in table: $tableName.")
+                    val prop = classifiers.keys.firstOrNull { prop -> prop.name == constParam.name }
+                    checkNotNull(prop)
+
+                    val classifier = classifiers[prop]
+                    checkNotNull(classifier)
 
                     val getProp =
                         GetPropInfo(
-                            kParam = constParam,
-                            getter = getValue(prop, columnName),
+                            constParam,
+                            getValue(classifier, columnName),
                         )
 
                     val setProp =
@@ -74,20 +90,13 @@ class RepositoryReflect<K : Any, T : Any>(
                         } else {
                             SetPropInfo(columnName, constParam) { entity ->
                                 val value = prop.call(entity)
-                                setValue(value, index, prop)
+                                setValue(value, index, classifier)
                             }
                         }
 
                     getProp to setProp
                 }
         }
-
-    private val tableName =
-        domainKlass
-            .findAnnotations(Table::class)
-            .firstOrNull()
-            ?.name
-            ?: throw IllegalArgumentException("Missing @Table annotation in class $domainKlass")
 
     override fun getById(id: K): T? {
         val query = "SELECT * FROM $tableName WHERE ${pk.name} = ?"
@@ -143,108 +152,101 @@ class RepositoryReflect<K : Any, T : Any>(
     }
 
     private fun mapRowToEntity(rs: ResultSet): T {
-        val paramValues = props.keys.associate { (param, mapPropValue) -> param to mapPropValue(rs) }
+        val paramValues = props.keys.associate { (param, mapPropValue) -> param to rs.mapPropValue() }
         return constructor.callBy(paramValues)
     }
 
-    private fun ResultSet.getValueFromAuxRepo(
-        kProperty: KProperty<*>,
+    private fun ResultSet.getPrimitiveStringDateValue(
+        classifier: KClass<*>,
+        columnName: String,
+    ) = when (classifier) {
+        Boolean::class -> getBoolean(columnName)
+        Int::class -> getInt(columnName)
+        Long::class -> getLong(columnName)
+        String::class -> getString(columnName)
+        Date::class -> getDate(columnName)
+        else -> throw Exception("Unsupported type $classifier")
+    }
+
+    private fun ResultSet.getEnumValue(
+        classifier: KClass<*>,
         columnName: String,
     ): Any {
-        val type = kProperty.returnType.classifier as KClass<*>
-        val auxRepo = auxRepos[type] ?: throw Exception("No repository found for $type")
-        val foreignKeyType = auxRepo.pk
+        val enumName = getString(columnName)
+        return classifier.java.enumConstants.first { (it as Enum<*>).name == enumName }
+    }
+
+    private fun ResultSet.getValueFromAuxRepo(
+        classifier: KClass<*>,
+        columnName: String,
+    ): Any {
+        val auxRepo = auxRepos[classifier] ?: throw Exception("No repository found for $classifier")
+        val foreignKeyType = auxRepo.classifiers[auxRepo.pk] ?: throw IllegalStateException("Missing pk in ${auxRepo.tableName}")
         val pkValue = this.getPrimitiveStringDateValue(foreignKeyType, columnName)
         return auxRepo.getById(pkValue)!!
     }
 
     private fun getValue(
-        kProperty: KProperty<*>,
+        classifier: KClass<*>,
         columnName: String,
     ): (ResultSet) -> Any =
         when {
-            kProperty.isPrimitiveOrStringOrDate() -> { rs -> rs.getPrimitiveStringDateValue(kProperty, columnName) }
-            kProperty.isEnum() -> { rs -> rs.getEnumValue(kProperty, columnName) }
-            else -> { rs -> rs.getValueFromAuxRepo(kProperty, columnName) }
+            classifier.isPrimitiveOrStringOrDate() -> { rs -> rs.getPrimitiveStringDateValue(classifier, columnName) }
+            classifier.isEnum() -> { rs -> rs.getEnumValue(classifier, columnName) }
+            else -> { rs -> rs.getValueFromAuxRepo(classifier, columnName) }
         }
 
     private fun PreparedStatement.setPrimitiveOrStringOrDate(
         value: Any?,
         index: Int,
-        kProperty: KProperty<*>,
+        classifier: KClass<*>,
     ) = when (value) {
         is Boolean -> setBoolean(index, value)
         is Int -> setInt(index, value)
         is Long -> setLong(index, value)
         is String -> setString(index, value)
         is Date -> setDate(index, value)
-        else -> throw Exception("Unsupported type ${kProperty.returnType.classifier}")
+        else -> throw Exception("Unsupported type $classifier")
     }
 
     private fun PreparedStatement.setValueFromAuxRepo(
         value: Any?,
         index: Int,
-        kProperty: KProperty<*>,
+        classifier: KClass<*>,
     ) {
-        val entityKlass = kProperty.returnType.classifier as KClass<*>
-        entityKlass.declaredMemberProperties
-            .first { prop -> prop.findAnnotations(Pk::class).isNotEmpty() }
-            .let { prop ->
-                val type = kProperty.returnType.classifier as KClass<*>
-                val auxRepo = auxRepos[type] ?: throw Exception("No repository found for $type")
-                val fk = auxRepo.pk
+        val auxRepo = auxRepos[classifier] ?: throw Exception("No repository found for $classifier")
+        val fk = auxRepo.pk
 
-                val fkValue = fk.call(value)
+        val fkValue = fk.call(value)
 
-                setValue(fkValue, index, prop)
-            }
+        val fkClassifier = auxRepo.classifiers[fk]
+        checkNotNull(fkClassifier)
+
+        setValue(fkValue, index, fkClassifier)
     }
 
     private fun PreparedStatement.setValue(
         value: Any?,
         index: Int,
-        kProperty: KProperty<*>,
+        classifier: KClass<*>,
     ): Unit =
         when {
-            kProperty.isPrimitiveOrStringOrDate() -> {
-                setPrimitiveOrStringOrDate(value, index, kProperty)
+            classifier.isPrimitiveOrStringOrDate() -> {
+                setPrimitiveOrStringOrDate(value, index, classifier)
             }
-            kProperty.isEnum() -> {
+            classifier.isEnum() -> {
                 val enumValue = value as Enum<*>
                 setObject(index, enumValue.name, Types.OTHER) // Types.OTHER is for PostgreSQL
             }
             else -> {
-                setValueFromAuxRepo(value, index, kProperty)
+                setValueFromAuxRepo(value, index, classifier)
             }
         }
-}
 
-private fun KProperty<*>.isEnum() = (returnType.classifier as KClass<*>).java.isEnum
+    private fun KClass<*>.isEnum() = java.isEnum
 
-private fun ResultSet.getEnumValue(
-    kProperty: KProperty<*>,
-    columnName: String,
-): Any {
-    val enumName = getString(columnName)
-    val enumClass = kProperty.returnType.classifier as KClass<*>
-    return enumClass.java.enumConstants.first { (it as Enum<*>).name == enumName }
-}
-
-private fun KProperty<*>.isPrimitiveOrStringOrDate() =
-    (returnType.classifier as KClass<*>)
-        .java
-        .isPrimitive ||
-        returnType.classifier == String::class ||
-        returnType.classifier == Date::class
-
-private fun ResultSet.getPrimitiveStringDateValue(
-    kProperty: KProperty<*>,
-    columnName: String,
-) = when (kProperty.returnType.classifier) {
-    Boolean::class -> getBoolean(columnName)
-    Int::class -> getInt(columnName)
-    Long::class -> getLong(columnName)
-    String::class -> getString(columnName)
-    Date::class -> getDate(columnName)
-    else -> throw Exception("Unsupported type ${kProperty.returnType.classifier}")
+    private fun KClass<*>.isPrimitiveOrStringOrDate() =
+        java.isPrimitive ||
+            this == String::class ||
+            this == Date::class
 }
