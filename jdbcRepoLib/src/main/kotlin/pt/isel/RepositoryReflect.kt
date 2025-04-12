@@ -21,8 +21,8 @@ private data class GetPropInfo(
     val getter: ResultSet.() -> Any,
 )
 
-class RepositoryReflect<K : Any, T : Any>(
-    private val connection: Connection,
+open class RepositoryReflect<K : Any, T : Any>(
+    protected val connection: Connection,
     domainKlass: KClass<T>,
 ) : Repository<K, T> {
     companion object {
@@ -151,7 +151,7 @@ class RepositoryReflect<K : Any, T : Any>(
         }
     }
 
-    private fun mapRowToEntity(rs: ResultSet): T {
+    open fun mapRowToEntity(rs: ResultSet): T {
         val paramValues = props.keys.associate { (param, mapPropValue) -> param to rs.mapPropValue() }
         return constructor.callBy(paramValues)
     }
