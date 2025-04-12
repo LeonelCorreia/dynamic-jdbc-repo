@@ -1,6 +1,7 @@
 package pt.isel.sports
 
-import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
 import java.sql.Connection
@@ -10,26 +11,35 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 
 class TeamsRepositoryTests {
-    private val connection: Connection = DriverManager.getConnection(DB_URL_SPORTS)
-    private val repository: Repository<Int, Team> =
-        RepositoryReflect(connection, Team::class)
+    companion object {
+        private val connection: Connection = DriverManager.getConnection(DB_URL_SPORTS)
 
-    @Test
-    fun `getAll should return all teams`() {
+        @JvmStatic
+        fun repositories() =
+            listOf<Repository<Int, Team>>(
+                RepositoryReflect(connection, Team::class),
+            )
+    }
+
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `getAll should return all teams`(repository: Repository<Int, Team>) {
         val teams: List<Team> = repository.getAll()
         assertEquals(9, teams.size)
     }
 
-    @Test
-    fun `retrieve a team`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `retrieve a team`(repository: Repository<Int, Team>) {
         val team = repository.getAll().first { it.name.contains("Benfica Football") }
         val otherTeam = repository.getById(team.id)
         assertNotNull(otherTeam)
         assertEquals(team, otherTeam)
     }
 
-    @Test
-    fun `update a team`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `update a team`(repository: Repository<Int, Team>) {
         val team = repository.getAll().first { it.name.contains("Benfica Soccer") }
         val updatedTeam = team.copy(name = "Benfica Football")
         repository.update(updatedTeam)
@@ -38,8 +48,9 @@ class TeamsRepositoryTests {
         assertEquals(updatedTeam, retrieved)
     }
 
-    @Test
-    fun `delete a team`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `delete a team`(repository: Repository<Int, Team>) {
         val sql =
             """
             INSERT INTO teams (name, sport, club)

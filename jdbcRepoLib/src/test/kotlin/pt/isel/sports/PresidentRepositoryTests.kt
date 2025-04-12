@@ -1,6 +1,7 @@
 package pt.isel.sports
 
-import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
 import java.sql.Connection
@@ -14,18 +15,26 @@ import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 
 class PresidentRepositoryTests {
-    private val connection: Connection = DriverManager.getConnection(DB_URL_SPORTS)
-    private val repository: Repository<Int, President> =
-        RepositoryReflect(connection, President::class)
+    companion object {
+        private val connection: Connection = DriverManager.getConnection(DB_URL_SPORTS)
 
-    @Test
-    fun `getAll should return all users`() {
+        @JvmStatic
+        fun repositories() =
+            listOf<Repository<Int, President>>(
+                RepositoryReflect(connection, President::class),
+            )
+    }
+
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `getAll should return all users`(repository: Repository<Int, President>) {
         val presidents: List<President> = repository.getAll()
         assertEquals(4, presidents.size)
     }
 
-    @Test
-    fun `retrieve a president`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `retrieve a president`(repository: Repository<Int, President>) {
         val ruiCosta = repository.getAll().first { it.name.contains("Rui Costa") }
         val rui = repository.getById(ruiCosta.id)
         assertNotNull(rui)
@@ -33,8 +42,9 @@ class PresidentRepositoryTests {
         assertNotSame(ruiCosta, rui)
     }
 
-    @Test
-    fun `update a president`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `update a president`(repository: Repository<Int, President>) {
         val rui = repository.getAll().first { it.name.contains("Rui Costa") }
         val updatedRui = rui.copy(name = "Rui Manuel César Costa ")
         repository.update(updatedRui)
@@ -43,8 +53,9 @@ class PresidentRepositoryTests {
         assertEquals(updatedRui, retrieved)
     }
 
-    @Test
-    fun `delete a president`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `delete a president`(repository: Repository<Int, President>) {
         val sql = "INSERT INTO presidents (name, birthdate) VALUES (?, ?)"
         val values =
             arrayOf<Any>(

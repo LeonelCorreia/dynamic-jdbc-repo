@@ -1,5 +1,7 @@
 package pt.isel.chat
 
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
 import java.sql.Connection
@@ -7,24 +9,31 @@ import java.sql.Date
 import java.sql.DriverManager
 import java.sql.Statement.RETURN_GENERATED_KEYS
 import java.time.LocalDate
-import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNotSame
 
 class UserRepositoryTest {
-    private val connection: Connection = DriverManager.getConnection(DB_URL)
-    private val repository: Repository<Long, User> =
-        RepositoryReflect(connection, User::class)
+    companion object {
+        private val connection: Connection = DriverManager.getConnection(DB_URL)
 
-    @Test
-    fun `getAll should return all users`() {
+        @JvmStatic
+        fun repositories() =
+            listOf<Repository<Long, User>>(
+                RepositoryReflect(connection, User::class),
+            )
+    }
+
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `getAll should return all users`(repository: Repository<Long, User>) {
         val users: List<User> = repository.getAll()
         assertEquals(3, users.size)
     }
 
-    @Test
-    fun `retrieve a user`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `retrieve a user`(repository: Repository<Long, User>) {
         val alice = repository.getAll().first { it.name.contains("Alice") }
         val otherAlice = repository.getById(alice.id)
         assertNotNull(otherAlice)
@@ -32,8 +41,9 @@ class UserRepositoryTest {
         assertNotSame(alice, otherAlice)
     }
 
-    @Test
-    fun `update a user`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `update a user`(repository: Repository<Long, User>) {
         val bob = repository.getAll().first { it.name.contains("Bob") }
         val updatedBob = bob.copy(email = "bob@marley.dev")
         repository.update(updatedBob)
@@ -42,8 +52,9 @@ class UserRepositoryTest {
         assertEquals(updatedBob, retrieved)
     }
 
-    @Test
-    fun `delete a user`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `delete a user`(repository: Repository<Long, User>) {
         val sql =
             """
             INSERT INTO users (name, email, birthdate)

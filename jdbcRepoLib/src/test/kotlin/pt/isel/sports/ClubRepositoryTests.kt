@@ -1,38 +1,48 @@
 package pt.isel.sports
 
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.Statement.RETURN_GENERATED_KEYS
-import kotlin.test.Test
 import kotlin.test.assertEquals
 
 val DB_URL_SPORTS = System.getenv("DB_URL_SPORTS") ?: throw Exception("Missing env var DB_URL_SPORTS")
 
 class ClubRepositoryTests {
-    private val connection: Connection = DriverManager.getConnection(DB_URL_SPORTS)
-    private val repository: Repository<Int, Club> =
-        RepositoryReflect(connection, Club::class)
+    companion object {
+        private val connection: Connection = DriverManager.getConnection(DB_URL_SPORTS)
+
+        @JvmStatic
+        fun repositories() =
+            listOf<Repository<Int, Club>>(
+                RepositoryReflect(connection, Club::class),
+            )
+    }
 
     private val presidentRepository: Repository<Int, President> =
         RepositoryReflect(connection, President::class)
 
-    @Test
-    fun `getAll should return all clubs`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `getAll should return all clubs`(repository: Repository<Int, Club>) {
         val clubs: List<Club> = repository.getAll()
         assertEquals(3, clubs.size)
     }
 
-    @Test
-    fun `retrieve a club`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `retrieve a club`(repository: Repository<Int, Club>) {
         val sporting = repository.getAll().first { it.name.contains("Sporting") }
         val otherSporting = repository.getById(sporting.id)
         assertEquals(sporting, otherSporting)
     }
 
-    @Test
-    fun `update a club`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `update a club`(repository: Repository<Int, Club>) {
         val benfica = repository.getAll().first { it.name.contains("Benfica") }
         val updatedBenfica = benfica.copy(foundedYear = 1904, name = "Sport Lisboa e Benfica")
         repository.update(updatedBenfica)
@@ -40,8 +50,9 @@ class ClubRepositoryTests {
         assertEquals(updatedBenfica, retrieved)
     }
 
-    @Test
-    fun `delete a club`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `delete a club`(repository: Repository<Int, Club>) {
         val pauloRosado =
             presidentRepository
                 .getAll()

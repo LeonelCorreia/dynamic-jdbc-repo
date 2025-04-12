@@ -1,7 +1,8 @@
 package pt.isel.sports
 
 import org.junit.jupiter.api.BeforeEach
-import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
 import pt.isel.sports.dao.SportRepositoryJdbc
@@ -12,9 +13,16 @@ import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 
 class SportRepositoryTests {
-    private val connection: Connection = DriverManager.getConnection(DB_URL_SPORTS)
-    private val repository: Repository<String, Sport> =
-        RepositoryReflect(connection, Sport::class)
+    companion object {
+        private val connection: Connection = DriverManager.getConnection(DB_URL_SPORTS)
+
+        @JvmStatic
+        fun repositories() =
+            listOf<Repository<String, Sport>>(
+                RepositoryReflect(connection, Sport::class),
+            )
+    }
+
     private val tableTennis = Sport("Table Tennis", SportType.INDIVIDUAL, Location.INDOOR)
 
     @BeforeEach
@@ -25,21 +33,24 @@ class SportRepositoryTests {
         }
     }
 
-    @Test
-    fun `getAll should return all sports`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `getAll should return all sports`(repository: Repository<String, Sport>) {
         val sports: List<Sport> = repository.getAll()
         assertEquals(4, sports.size)
     }
 
-    @Test
-    fun `retrieve a sport`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `retrieve a sport`(repository: Repository<String, Sport>) {
         val basket = repository.getAll().first { it.name.contains("Basketball") }
         val foundBasket = repository.getById(basket.name)
         assertEquals(basket, foundBasket)
     }
 
-    @Test
-    fun `update a sport`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `update a sport`(repository: Repository<String, Sport>) {
         val tennis = repository.getAll().first { it.name.contains("Tennis") }
         assertEquals(SportType.TEAM, tennis.type)
         val updatedTennis = tennis.copy(type = SportType.INDIVIDUAL)
@@ -49,8 +60,9 @@ class SportRepositoryTests {
         assertEquals(updatedTennis, retrieved)
     }
 
-    @Test
-    fun `delete a sport`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `delete a sport`(repository: Repository<String, Sport>) {
         repository.deleteById(tableTennis.name)
         val tableTennis = repository.getById(tableTennis.name)
         assertNull(tableTennis)

@@ -1,12 +1,13 @@
 package pt.isel.chat
 
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
 import pt.isel.chat.dao.ChannelRepositoryJdbc
 import java.sql.Connection
 import java.sql.DriverManager
-import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -15,9 +16,16 @@ import kotlin.test.assertTrue
 val DB_URL = System.getenv("DB_URL") ?: throw Exception("Missing env var DB_URL")
 
 class ChannelRepositoryTest {
-    private val connection: Connection = DriverManager.getConnection(DB_URL)
-    private val repository: Repository<String, Channel> =
-        RepositoryReflect(connection, Channel::class) // ChannelRepositoryJdbc(connection)
+    companion object {
+        private val connection: Connection = DriverManager.getConnection(DB_URL)
+
+        @JvmStatic
+        fun repositories() =
+            listOf<Repository<String, Channel>>(
+                RepositoryReflect(connection, Channel::class),
+            )
+    }
+
     private val channelRandom =
         Channel("Random", ChannelType.PRIVATE, System.currentTimeMillis(), false, 400, 50, false, 0L)
 
@@ -29,14 +37,16 @@ class ChannelRepositoryTest {
         }
     }
 
-    @Test
-    fun `retrieve a channel`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `retrieve a channel`(repository: Repository<String, Channel>) {
         val retrieved = repository.getById("General")
         assertNotNull(retrieved)
     }
 
-    @Test
-    fun `update a channel`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `update a channel`(repository: Repository<String, Channel>) {
         val updatedChannel = channelRandom.copy(maxMembers = 200, isReadOnly = true)
         repository.update(updatedChannel)
 
@@ -46,15 +56,17 @@ class ChannelRepositoryTest {
         assertEquals(true, retrieved.isReadOnly)
     }
 
-    @Test
-    fun `delete a channel`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `delete a channel`(repository: Repository<String, Channel>) {
         repository.deleteById(channelRandom.name)
         val retrieved = repository.getById(channelRandom.name)
         assertNull(retrieved)
     }
 
-    @Test
-    fun `getAll should return all channels`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `getAll should return all channels`(repository: Repository<String, Channel>) {
         val channels: List<Channel> = repository.getAll()
         assertEquals(6, channels.size)
         assertTrue(channelRandom in channels)

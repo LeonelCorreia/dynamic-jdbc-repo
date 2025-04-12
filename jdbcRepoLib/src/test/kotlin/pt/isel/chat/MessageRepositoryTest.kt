@@ -1,5 +1,7 @@
 package pt.isel.chat
 
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
 import pt.isel.chat.dao.ChannelRepositoryJdbc
@@ -7,23 +9,31 @@ import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.Statement.RETURN_GENERATED_KEYS
 import java.time.LocalDate
-import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNotSame
 
 class MessageRepositoryTest {
-    private val connection: Connection = DriverManager.getConnection(DB_URL)
-    private val repository: Repository<Long, Message> = RepositoryReflect(connection, Message::class)
+    companion object {
+        private val connection: Connection = DriverManager.getConnection(DB_URL)
 
-    @Test
-    fun `getAll should return all messages`() {
+        @JvmStatic
+        fun repositories() =
+            listOf<Repository<Long, Message>>(
+                RepositoryReflect(connection, Message::class),
+            )
+    }
+
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `getAll should return all messages`(repository: Repository<Long, Message>) {
         val users: List<Message> = repository.getAll()
         assertEquals(20, users.size)
     }
 
-    @Test
-    fun `retrieve a message`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `retrieve a message`(repository: Repository<Long, Message>) {
         val esportsMsg = repository.getAll().first { it.channel.name == "Esports Discussion" }
         val otherMsg = repository.getById(esportsMsg.id)
         assertNotNull(otherMsg)
@@ -31,13 +41,15 @@ class MessageRepositoryTest {
         assertNotSame(otherMsg, esportsMsg)
     }
 
-    @Test
-    fun `retrieve message with PK three`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `retrieve message with PK three`(repository: Repository<Long, Message>) {
         val msg = repository.getById(3)
     }
 
-    @Test
-    fun `update a message content`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `update a message content`(repository: Repository<Long, Message>) {
         val devMsg = repository.getAll().first { it.channel.name == "Development" }
         val updatedMsg = devMsg.copy(content = "Only include relevant and reliable contents.")
         repository.update(updatedMsg)
@@ -47,8 +59,9 @@ class MessageRepositoryTest {
         assertNotSame(updatedMsg, retrieved)
     }
 
-    @Test
-    fun `update a message channel`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `update a message channel`(repository: Repository<Long, Message>) {
         val devMsg = repository.getAll().first { it.channel.name == "Development" }
         val general = ChannelRepositoryJdbc(connection).getById("General")
         assertNotNull(general)
@@ -60,8 +73,9 @@ class MessageRepositoryTest {
         assertNotSame(updatedMsg, retrieved)
     }
 
-    @Test
-    fun `delete a message`() {
+    @ParameterizedTest
+    @MethodSource("repositories")
+    fun `delete a message`(repository: Repository<Long, Message>) {
         val sql =
             """
             INSERT INTO messages (content, timestamp, user_id, channel_name)
