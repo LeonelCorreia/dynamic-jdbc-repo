@@ -61,7 +61,7 @@ direction LR
     Message --> User : user
 ```
 
-## Part 1 - jdbcRepoLib with Kotlin Reflection
+## Assignment 1 - jdbcRepoLib with Kotlin Reflection
 
 ### 1.1. - Implement `RepositoryReflect`
 
@@ -90,6 +90,16 @@ You may use the ad-hoc implementation of `ChannelRepositoryJdbc` in the
 
 Run the micro-benchmarking from `jdbcRepoMicrobench` and register the slowdown 
 of the `RepositoryReflect` implementation compared to the ad-hoc `ChannelRepositoryJdbc`.
+
+Below is an example of the expected slowdown, approximately 3×, in the
+`RepositoryReflect` implementation when retrieving all channels using an
+in-memory mock JDBC implementation with five `Channel` instances.
+
+```
+Benchmark                             Mode  Cnt     Score     Error  Units
+benchRepositoryJdbcGetAllChannels     avgt    4   938.291 ±  29.267  ns/op
+benchRepositoryReflectGetAllChannels  avgt    4  3143.358 ± 904.489  ns/op
+```
 
 **NOTE:** Before proceeding, ensure that the unit tests of `jdbcRepoMicrobench` pass without errors.
 
@@ -122,18 +132,183 @@ Your domain should include at least two associations and two enum types. You may
 base it on the domain model specified by one of your group members in the first
 assignment of **Jsonoy**.
 
-## Part 2 - Dynamic generation of bytecode
+## Assignment 2 - Dynamic generation of bytecode
 
-Implement `repositoryDynamicBuilder()` in the `jdbcRepoLib` module to
-dynamically create a class that implements the `Repository` interface.
+Following up on Assignment 1 developed in the **jdbcRepo** library, it is
+intended to complete the implementation of the `buildRepositoryByteArray()` in
+`RepositoryDynamic.kt` file which makes a dynamic implementation of a class
+implementing the interface `Repository`, but that **DOES NOT use reflection** to
+**instantiate the domain class** (e.g. `User`, `Channel`, etc).
 
-Add support for SQL `INSERT` statement. To achieve this, an interface extending
-`Repository` may define an `insert` method annotated with `@Insert`, which will
-be implemented dynamically.
+**NOTE** that reflection will continue to be used to read metadata, only ceasing
+to be used in operations such as `ctor.callBy(...)`. The instantiation of a
+domain class will now be done directly based on code generated at runtime
+through the
+[Class-File API](https://docs.oracle.com/en/java/javase/22/vm/class-file-api.html).
 
-(... in progress...)
+**NOTE you will need JDK 22 to use the Class-File API.**
 
-## Part 3
+The following Figure presents an example of the use of `RepositoryReflect` from
+Assignment 1, where each instance of `RepositoryReflect` is associated with an
+instance of `KClass` to manage a specific domain class.
+Now, in Assignment 2, you will have a different Repository class (e.g.,
+`RepositoryDynUser`, `RepositoryDynChannel`, etc.) for each domain class, rather
+than using the same type of Repository to manage all classes (i.e.
+`RepositoryReflect`).
+These repositories are generated at runtime (i.e., dynamically) with the support
+of the Class-File API.
+
+![Reflect versus Dynamic](reflect-versus-dynamic.png "Reflect versus Dynamic")
+
+For each domain entity class the `loadDynamicRepository()` creates a specific
+implementation of a new class named `RepositoryDyn<Entity Name>`, e.g.
+`RepositoryDynChannel`.
+
+Each of these classes inherits from `RepositoryReflect` and simply overrides
+the method responsible for mapping a `ResultSet` into an entity object—such
+as `Channel`, `Message`, or others—specifically the
+`open fun mapRowToEntity(rs: ResultSet): T` method. To that end, **ENSURE** the following:
+1. The `RepositoryReflect` class is marked as `open`.
+2. The method `mapRowToEntity`, or its equivalent, is declared as `open`.
+3. The `connection` property is declared as `protected`.
+
+
+### 2.0 - Configure the project for Java 22
+
+Update your `jdbcRepo` project to match the configurations introduced in
+[commit 3cb3b53](https://github.com/isel-leic-ave/jdbcRepo/commit/3cb3b534b50fad5168c5e1ca485828bbcc3cdc9b),
+ensuring support for Java 22 and the new Class-File API.
+This includes updating the following files:
+* `gradle-wrapper.properties`
+* `build.gradle` in each module (**IGNORE the modification of docker path**)
+
+**After making these changes, verify that the project still builds successfully
+by running `./gradlew build`.**
+
+### 2.1 - Generate mapping ResultSet to Entity T dynamically
+
+Your implementation should be developed incrementally, fulfilling the requirements of each step **without skipping any**.
+
+**Create a separate commit for each of the following changes, and include the requirement order number in the commit message.**
+
+1. Update the `UserRepositoryTest` to support different implementations of the
+   `Repository` interface, following the changes introduced in 
+   [commit 6726b03](https://github.com/isel-leic-ave/jdbcRepo/commit/6726b032920a1bfd2d99de2810119d0be3c0dc29).  
+   Add the following dependency to enable parameterized tests:  
+   `testImplementation("org.junit.jupiter:junit-jupiter-params:5.10.2")`.  
+   **After making these changes, verify that the project still builds and tests
+   are passing successfully**
+
+2. Copy the [`RepositoryDynamic`](https://github.com/isel-leic-ave/jdbcRepo/blob/main/jdbcRepoLib/src/main/kotlin/pt/isel/RepositoryDynamic.kt)
+   file into your project. **Review its structure and carefully analyze
+   each of its functions.**
+   **Add Javadoc comments to each member** of the `RepositoryDynamic` file,
+   clearly explaining its behavior and purpose.
+
+3. Implement the `buildRepositoryByteArray()` function:
+   1. This function generates a byte array representing a dynamically created
+      class that extends `RepositoryReflect`, and then saves it to the
+      corresponding class file.
+   2. Ensure that the `RepositoryReflect` class is marked as `open`.
+   3. The dynamically created class must have a constructor that matches the
+      base class constructor and calls the base constructor with the required
+      arguments.
+   4. **Do not override any methods** in this step.
+   5. In `UserRepositoryTest` add an instance of `Repository<Long, User>`,
+      created using `loadDynamicRepo(connection, User::class)`, to the
+      repositories returned by the `repositories()` function.
+   6. Verify that all tests pass and confirm that the `RepositoryDynUser.class`
+      file has been created. Open the resulting class file in IntelliJ and check
+      the decompiled code.
+
+4. Override the `mapRowToEntity` method in the dynamically generated class, or
+   any other method responsible for mapping a `ResultSet` into an instance of
+   the entity class `T`.  
+   **Note:** Ensure the base method in `RepositoryReflect` is declared as
+   `open`.  
+   In this step, handle **only properties whose types are primitives, `String`,
+   or `java.sql.Date`**.
+   After overriding, verify that `UserRepositoryTest` still passes.
+
+5. Update `ChannelRepositoryTest` to use a parameterized test, as in step 1,
+   covering both reflective and dynamic repository implementations.  
+   Ensure that the overridden `mapRowToEntity` method correctly handles
+   properties of enum types.  
+   Confirm that the `RepositoryDynChannel.class` file has been created.  
+   Open the resulting class file in IntelliJ and check the decompiled code.
+
+6. Update `MessageRepositoryTest` to use a parameterized test, as in step 1,
+   covering both reflective and dynamic repository implementations.  
+   Ensure that the overridden `mapRowToEntity` method correctly supports
+   associations between domain classes.
+   **Remember, we need access to the `connection` property to be passed to the
+   auxiliary instance of the repository.**
+   Confirm that the `RepositoryDynMessage.class` file has been created.  
+   Open the resulting class file in IntelliJ and check the decompiled code.
+
+7. Update your tests from part 1.3 of Assignment 1 to use parameterized tests,
+   following the pattern from step 1.  
+   Make sure to cover both reflective and dynamic repository implementations,
+   and verify that all tests pass.
+
+
+### 2.2 - Micro-benchmarking
+
+Update the `jdbcRepoMicrobench` module to include performance measurements for a
+dynamically generated repository.
+
+**Verify if its performance is similar to the baseline.**
+
+### 2.3 - Micro-benchmarking for entities with associations
+
+Implement a performance test for an entity from your domain in part 1.3 of
+Assignment 1 that maintains associations with other entities.
+
+Modify `FakePreparedStatement` and `FakeResultSet` to support this test.
+
+Compare the performance across the three approaches: baseline, reflective, and
+dynamic.
+
+**OPTIONAL**: Improve the performance of the dynamic repository by adding
+instance fields that hold instances of auxiliary repositories for related
+entities.
+
+### 2.4 - Support Insert (OPTIONAL)
+
+Add support for the SQL `INSERT` statement. To achieve this, create an interface
+extending `Repository` and define an `insert` method annotated with `@Insert`.
+This method should be implemented dynamically.
+
+The updated `loadDynamicRepo` should return an instance of a dynamically created
+class that extends `RepositoryReflect` and implements the given interface, e.g.:
+`UserRepository`:
+
+```kotlin
+val repo: UserRepository = loadDynamicRepo(connection, User::class, UserRepository::class)
+
+interface UserRepository : Repository<Long, User> {
+    @Insert
+    fun insert(
+        name: String,
+        email: String,
+        birthdate: Date,
+    ): User
+}
+```
+
+### 2.5 - Fully dynamic Repository (OPTIONAL)
+
+Create a new implementation of `buildRepositoryByteArray()` that generates a new
+class from scratch. This class should **not** inherit from `RepositoryReflect`,
+but instead provide dynamic implementations of methods, replacing reflection.
+
+Note: You do not need to implement all methods dynamically. You may use an
+auxiliary abstract base class that provides the skeleton for the main methods
+(e.g., `update`, `delete`, etc.). Delegate the implementation of the specific
+methods to hook methods (abstract methods) that will be implemented dynamically
+by the derived class.
+
+## Assignment 3
 
 Add support for Lazy queries.
 
