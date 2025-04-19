@@ -4,6 +4,7 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
+import pt.isel.loadDynamicRepo
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.Statement.RETURN_GENERATED_KEYS
@@ -19,6 +20,7 @@ class ClubRepositoryTests {
         fun repositories() =
             listOf<Repository<Int, Club>>(
                 RepositoryReflect(connection, Club::class),
+                loadDynamicRepo(connection, Club::class),
             )
     }
 

@@ -1,14 +1,11 @@
 package pt.isel
 
 import java.io.File
+import java.lang.classfile.ClassFile
+import java.lang.classfile.ClassFile.ACC_PUBLIC
 import java.lang.constant.ClassDesc
-import java.lang.constant.ConstantDescs.CD_boolean
-import java.lang.constant.ConstantDescs.CD_char
-import java.lang.constant.ConstantDescs.CD_double
-import java.lang.constant.ConstantDescs.CD_float
-import java.lang.constant.ConstantDescs.CD_int
-import java.lang.constant.ConstantDescs.CD_long
-import java.lang.constant.ConstantDescs.CD_short
+import java.lang.constant.ConstantDescs.*
+import java.lang.constant.MethodTypeDesc
 import java.net.URLClassLoader
 import java.sql.Connection
 import kotlin.reflect.KClass
@@ -24,15 +21,36 @@ private val root =
         ?.path
         ?: "${System.getProperty("user.dir")}/"
 
+
+/**
+ * A new ClassLoader is required when the existing one loads classes from a JAR
+ * and its resource path is null. In such cases, we create a ClassLoader that uses
+ * the current working directory, as specified by the 'user.dir' system property.
+ */
 private val rootLoader = URLClassLoader(arrayOf(File(root).toURI().toURL()))
 
+
+/**
+ * Cache of dynamically generated repo keyed by the domain class and the repoReflect.
+ * Prevents the need to regenerate the same repo instance multiple times.
+ */
 private val repositories = mutableMapOf<KClass<*>, RepositoryReflect<*, *>>()
+
+/**
+ * Loads a dynamic repo instance for the given domain class using its Java `Class` representation.
+ * Delegates to the `loadDynamicRepo` function with the Kotlin class representation.
+ */
 
 fun <K : Any, T : Any> loadDynamicRepo(
     connection: Connection,
     domainKlass: Class<T>,
 ) = loadDynamicRepo<K, T>(connection, domainKlass.kotlin)
 
+/**
+ * Loads or creates a dynamic repository for the given domain class.
+ * If a repository already exists, it returns the existing one, otherwise
+ * it generates a new one using the buildRepositoryClassfile, loads it and instantiates it.
+ */
 fun <K : Any, T : Any> loadDynamicRepo(
     connection: Connection,
     domainKlass: KClass<T>,
@@ -43,6 +61,10 @@ fun <K : Any, T : Any> loadDynamicRepo(
         .call(connection) as RepositoryReflect<*, *>
 } as RepositoryReflect<K, T>
 
+/**
+ * Generates the class file for a dynamic repository based on the given domain class.
+ * Using Class-File API to build the repository implementation at runtime.
+ */
 private fun <T : Any> buildRepositoryClassfile(domainKlass: KClass<T>): KClass<out Any> {
     val className = "RepositoryDyn${domainKlass.simpleName}"
     buildRepositoryByteArray(className, domainKlass)
@@ -60,8 +82,51 @@ fun <T : Any> buildRepositoryByteArray(
     className: String,
     domainKlass: KClass<T>,
 ) {
-    TODO()
+    val bytes =
+        ClassFile
+            .of()
+            .build(ClassDesc.of("$PACKAGE_NAME.$className")) { clb ->
+                // the class generated is a subclass of RepositoryReflect
+                clb.withSuperclass(RepositoryReflect::class.descriptor())
+
+                clb.withMethod(
+                    INIT_NAME,
+                    MethodTypeDesc.of(
+                        CD_void, // return type
+                        Connection::class.descriptor(), // connection
+                    ),
+                    ACC_PUBLIC
+                ) { mb ->
+                    mb.withCode { cb ->
+                        cb
+                            .aload(0) // this
+                            .aload(1) // connection
+                            // Creates an entry in the constant pool, but does not load it as a KClass but as a Class
+                            .ldc(cb.constantPool().classEntry(domainKlass.descriptor()))
+                            .invokestatic(
+                                ClassDesc.of("kotlin.jvm.JvmClassMappingKt"),
+                                "getKotlinClass",
+                                MethodTypeDesc.of(KClass::class.descriptor(), Class::class.descriptor())
+                            ) // Converts a java.lang.Class em um kotlin.reflect.KClass
+                            .invokespecial(
+                                RepositoryReflect::class.descriptor(),
+                                INIT_NAME,
+                                MethodTypeDesc.of(
+                                    CD_void,
+                                    Connection::class.descriptor(),
+                                    KClass::class.descriptor()
+                                )
+                            )
+                            .return_()
+                    }
+                }
+            }
+    File(root, "$PACKAGE_NAME.$className".replace(".", "/") + ".class")
+        .also { it.parentFile.mkdirs() }
+        .writeBytes(bytes)
 }
+
+
 
 /**
  * Returns a ClassDesc of the type descriptor of the given KClass.

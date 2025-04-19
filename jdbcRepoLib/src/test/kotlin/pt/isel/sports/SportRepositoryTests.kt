@@ -5,6 +5,7 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
+import pt.isel.loadDynamicRepo
 import pt.isel.sports.dao.SportRepositoryJdbc
 import java.sql.Connection
 import java.sql.DriverManager
@@ -20,6 +21,7 @@ class SportRepositoryTests {
         fun repositories() =
             listOf<Repository<String, Sport>>(
                 RepositoryReflect(connection, Sport::class),
+                loadDynamicRepo(connection, Sport::class),
             )
     }
 
@@ -51,13 +53,30 @@ class SportRepositoryTests {
     @ParameterizedTest
     @MethodSource("repositories")
     fun `update a sport`(repository: Repository<String, Sport>) {
-        val tennis = repository.getAll().first { it.name.contains("Tennis") }
-        assertEquals(SportType.TEAM, tennis.type)
-        val updatedTennis = tennis.copy(type = SportType.INDIVIDUAL)
-        repository.update(updatedTennis)
-        val retrieved = repository.getById(tennis.name)
-        assertNotSame(updatedTennis, retrieved)
-        assertEquals(updatedTennis, retrieved)
+        val uniqueSportName = "TestSport${System.currentTimeMillis()}"
+
+        val sql = """
+        INSERT INTO sports (name, type, location)
+        VALUES (?, ?::sport_type, ?::location)
+        """.trimIndent()
+
+        connection.prepareStatement(sql).use { stmt ->
+            stmt.setString(1, uniqueSportName)
+            stmt.setString(2, SportType.TEAM.name)
+            stmt.setString(3, Location.INDOOR.name)
+            stmt.executeUpdate()
+        }
+        val sport = repository.getById(uniqueSportName)
+        assertEquals(SportType.TEAM, sport!!.type)
+
+        val updatedSport = sport.copy(type = SportType.INDIVIDUAL)
+        repository.update(updatedSport)
+
+        val retrieved = repository.getById(uniqueSportName)
+        assertNotSame(updatedSport, retrieved)
+        assertEquals(updatedSport, retrieved)
+
+        repository.deleteById(uniqueSportName)
     }
 
     @ParameterizedTest

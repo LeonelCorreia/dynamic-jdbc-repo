@@ -4,6 +4,7 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
+import pt.isel.loadDynamicRepo
 import java.sql.Connection
 import java.sql.Date
 import java.sql.DriverManager
@@ -21,6 +22,7 @@ class UserRepositoryTest {
         fun repositories() =
             listOf<Repository<Long, User>>(
                 RepositoryReflect(connection, User::class),
+                loadDynamicRepo(connection, User::class)
             )
     }
 

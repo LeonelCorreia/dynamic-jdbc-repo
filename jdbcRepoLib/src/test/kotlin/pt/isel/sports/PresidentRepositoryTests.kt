@@ -4,6 +4,7 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
+import pt.isel.loadDynamicRepo
 import java.sql.Connection
 import java.sql.Date
 import java.sql.DriverManager
@@ -22,6 +23,7 @@ class PresidentRepositoryTests {
         fun repositories() =
             listOf<Repository<Int, President>>(
                 RepositoryReflect(connection, President::class),
+                loadDynamicRepo(connection, President::class),
             )
     }
 
@@ -45,12 +47,31 @@ class PresidentRepositoryTests {
     @ParameterizedTest
     @MethodSource("repositories")
     fun `update a president`(repository: Repository<Int, President>) {
-        val rui = repository.getAll().first { it.name.contains("Rui Costa") }
-        val updatedRui = rui.copy(name = "Rui Manuel César Costa ")
-        repository.update(updatedRui)
-        val retrieved = repository.getById(rui.id)
+        val uniqueName = "President Test ${System.currentTimeMillis()}"
+        val sql = "INSERT INTO presidents (name, birthdate) VALUES (?, ?)"
+        val values =
+            arrayOf<Any>(
+                uniqueName,
+                Date.valueOf(LocalDate.of(1972, 2, 8)),
+            )
+        val pk =
+            connection.prepareStatement(sql, RETURN_GENERATED_KEYS).use { stmt ->
+                values.forEachIndexed { index, it -> stmt.setObject(index + 1, it) }
+                stmt.executeUpdate()
+                stmt.generatedKeys.use { rs ->
+                    rs.next()
+                    rs.getInt(1)
+                }
+            }
+        val president = repository.getById(pk)
+        assertNotNull(president)
+        val updatedPresident = president.copy(name = "$uniqueName Updated")
+        repository.update(updatedPresident)
+        val retrieved = repository.getById(pk)
         assertNotNull(retrieved)
-        assertEquals(updatedRui, retrieved)
+        assertEquals(updatedPresident, retrieved)
+
+        repository.deleteById(pk)
     }
 
     @ParameterizedTest

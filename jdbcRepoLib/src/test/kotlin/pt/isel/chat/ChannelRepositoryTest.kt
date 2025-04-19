@@ -6,6 +6,7 @@ import org.junit.jupiter.params.provider.MethodSource
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
 import pt.isel.chat.dao.ChannelRepositoryJdbc
+import pt.isel.loadDynamicRepo
 import java.sql.Connection
 import java.sql.DriverManager
 import kotlin.test.assertEquals
@@ -23,6 +24,7 @@ class ChannelRepositoryTest {
         fun repositories() =
             listOf<Repository<String, Channel>>(
                 RepositoryReflect(connection, Channel::class),
+                loadDynamicRepo(connection, Channel::class)
             )
     }
 
