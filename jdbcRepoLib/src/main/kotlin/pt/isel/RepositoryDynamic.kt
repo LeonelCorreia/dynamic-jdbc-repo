@@ -1,8 +1,11 @@
+@file:Suppress("ktlint:standard:no-wildcard-imports")
+
 package pt.isel
 
 import java.io.File
 import java.lang.classfile.ClassFile
 import java.lang.classfile.ClassFile.ACC_PUBLIC
+import java.lang.classfile.CodeBuilder
 import java.lang.constant.ClassDesc
 import java.lang.constant.ConstantDescs.*
 import java.lang.constant.MethodTypeDesc
@@ -21,14 +24,12 @@ private val root =
         ?.path
         ?: "${System.getProperty("user.dir")}/"
 
-
 /**
  * A new ClassLoader is required when the existing one loads classes from a JAR
  * and its resource path is null. In such cases, we create a ClassLoader that uses
  * the current working directory, as specified by the 'user.dir' system property.
  */
 private val rootLoader = URLClassLoader(arrayOf(File(root).toURI().toURL()))
-
 
 /**
  * Cache of dynamically generated repo keyed by the domain class and the repoReflect.
@@ -92,32 +93,26 @@ fun <T : Any> buildRepositoryByteArray(
                 clb.withMethod(
                     INIT_NAME,
                     MethodTypeDesc.of(
-                        CD_void, // return type
-                        Connection::class.descriptor(), // connection
+                        CD_void,
+                        Connection::class.descriptor(),
                     ),
-                    ACC_PUBLIC
+                    ACC_PUBLIC,
                 ) { mb ->
                     mb.withCode { cb ->
                         cb
-                            .aload(0) // this
-                            .aload(1) // connection
-                            // Creates an entry in the constant pool, but does not load it as a KClass but as a Class
+                            .aload(0)
+                            .aload(1)
                             .ldc(cb.constantPool().classEntry(domainKlass.descriptor()))
-                            .invokestatic(
-                                ClassDesc.of("kotlin.jvm.JvmClassMappingKt"),
-                                "getKotlinClass",
-                                MethodTypeDesc.of(KClass::class.descriptor(), Class::class.descriptor())
-                            ) // Converts a java.lang.Class em um kotlin.reflect.KClass
+                            .toKClass()
                             .invokespecial(
                                 RepositoryReflect::class.descriptor(),
                                 INIT_NAME,
                                 MethodTypeDesc.of(
                                     CD_void,
                                     Connection::class.descriptor(),
-                                    KClass::class.descriptor()
-                                )
-                            )
-                            .return_()
+                                    KClass::class.descriptor(),
+                                ),
+                            ).return_()
                     }
                 }
             }
@@ -125,8 +120,6 @@ fun <T : Any> buildRepositoryByteArray(
         .also { it.parentFile.mkdirs() }
         .writeBytes(bytes)
 }
-
-
 
 /**
  * Returns a ClassDesc of the type descriptor of the given KClass.
@@ -155,4 +148,19 @@ fun KClass<*>.descriptor(): ClassDesc =
 fun KType.descriptor(): ClassDesc {
     val klass = this.classifier as KClass<*>
     return klass.descriptor()
+}
+
+/**
+ * Convert Class in KClass, that is in the stack
+ */
+fun CodeBuilder.toKClass(): CodeBuilder {
+    invokestatic(
+        ClassDesc.of("kotlin.jvm.internal.Reflection"),
+        "getOrCreateKotlinClass",
+        MethodTypeDesc.of(
+            KClass::class.descriptor(),
+            Class::class.descriptor(),
+        ),
+    )
+    return this
 }

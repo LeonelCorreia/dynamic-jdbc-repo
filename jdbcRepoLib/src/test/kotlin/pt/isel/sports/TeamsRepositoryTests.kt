@@ -47,27 +47,30 @@ class TeamsRepositoryTests {
         val sportName = "Football"
         val clubId = 2
 
-        val sql = """
-        INSERT INTO teams (name, sport, club)
-        VALUES (?, ?, ?)
-        """.trimIndent()
+        val sql =
+            """
+            INSERT INTO teams (name, sport, club)
+            VALUES (?, ?, ?)
+            """.trimIndent()
 
-        val values = arrayOf(
-            uniqueName,
-            sportName,
-            clubId
-        )
+        val values =
+            arrayOf(
+                uniqueName,
+                sportName,
+                clubId,
+            )
 
-        val pk = connection
-            .prepareStatement(sql, RETURN_GENERATED_KEYS)
-            .use { stmt ->
-                values.forEachIndexed { index, value -> stmt.setObject(index + 1, value) }
-                stmt.executeUpdate()
-                stmt.generatedKeys.use { rs ->
-                    rs.next()
-                    rs.getInt(1)
+        val pk =
+            connection
+                .prepareStatement(sql, RETURN_GENERATED_KEYS)
+                .use { stmt ->
+                    values.forEachIndexed { index, value -> stmt.setObject(index + 1, value) }
+                    stmt.executeUpdate()
+                    stmt.generatedKeys.use { rs ->
+                        rs.next()
+                        rs.getInt(1)
+                    }
                 }
-            }
 
         val team = repository.getById(pk)
         assertNotNull(team)

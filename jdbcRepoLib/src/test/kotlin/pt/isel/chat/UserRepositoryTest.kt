@@ -22,7 +22,7 @@ class UserRepositoryTest {
         fun repositories() =
             listOf<Repository<Long, User>>(
                 RepositoryReflect(connection, User::class),
-                loadDynamicRepo(connection, User::class)
+                loadDynamicRepo(connection, User::class),
             )
     }
 

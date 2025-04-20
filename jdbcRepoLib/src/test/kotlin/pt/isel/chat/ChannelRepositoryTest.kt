@@ -24,7 +24,7 @@ class ChannelRepositoryTest {
         fun repositories() =
             listOf<Repository<String, Channel>>(
                 RepositoryReflect(connection, Channel::class),
-                loadDynamicRepo(connection, Channel::class)
+                loadDynamicRepo(connection, Channel::class),
             )
     }
 

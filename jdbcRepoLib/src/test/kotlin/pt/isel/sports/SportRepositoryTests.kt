@@ -55,10 +55,11 @@ class SportRepositoryTests {
     fun `update a sport`(repository: Repository<String, Sport>) {
         val uniqueSportName = "TestSport${System.currentTimeMillis()}"
 
-        val sql = """
-        INSERT INTO sports (name, type, location)
-        VALUES (?, ?::sport_type, ?::location)
-        """.trimIndent()
+        val sql =
+            """
+            INSERT INTO sports (name, type, location)
+            VALUES (?, ?::sport_type, ?::location)
+            """.trimIndent()
 
         connection.prepareStatement(sql).use { stmt ->
             stmt.setString(1, uniqueSportName)

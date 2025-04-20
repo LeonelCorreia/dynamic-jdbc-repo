@@ -22,7 +22,7 @@ class MessageRepositoryTest {
         fun repositories() =
             listOf<Repository<Long, Message>>(
                 RepositoryReflect(connection, Message::class),
-                loadDynamicRepo(connection, Message::class)
+                loadDynamicRepo(connection, Message::class),
             )
     }
 
