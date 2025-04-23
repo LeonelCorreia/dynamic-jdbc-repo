@@ -18,9 +18,14 @@ open class RepositoryBench {
 
     private val repoReflect = RepositoryReflect<String, Channel>(FakeConnection(), Channel::class)
 
+    private val repoDynamic = loadDynamicRepo<String, Channel>(FakeConnection(), Channel::class.java)
+
     @Benchmark
     fun benchRepositoryJdbcGetAllChannels(): List<Channel> = repoJdbc.getAll()
 
     @Benchmark
     fun benchRepositoryReflectGetAllChannels(): List<Channel> = repoReflect.getAll()
+
+    @Benchmark
+    fun benchRepositoryDynamicGetAllChannels(): List<Channel> = repoDynamic.getAll()
 }

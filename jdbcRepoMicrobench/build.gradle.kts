@@ -13,6 +13,7 @@ dependencies {
 
     // Domain model for micro benchmarking
     implementation(project(":chatDomainModel"))
+    implementation(project(":sportsDomainModel"))
 
     testImplementation(kotlin("test"))
 }
