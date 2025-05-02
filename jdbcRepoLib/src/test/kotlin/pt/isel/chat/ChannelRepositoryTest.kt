@@ -1,3 +1,5 @@
+@file:Suppress("ktlint:standard:no-wildcard-imports")
+
 package pt.isel.chat
 
 import org.junit.jupiter.api.BeforeEach
@@ -9,10 +11,7 @@ import pt.isel.chat.dao.ChannelRepositoryJdbc
 import pt.isel.loadDynamicRepo
 import java.sql.Connection
 import java.sql.DriverManager
-import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 val DB_URL = System.getenv("DB_URL") ?: throw Exception("Missing env var DB_URL")
 
@@ -38,7 +37,7 @@ class ChannelRepositoryTest {
         fun repositories() =
             listOf<Repository<String, Channel>>(
                 // RepositoryReflect(connection, Channel::class),
-                loadDynamicRepo(connection, Channel::class, ChannelRepository::class) as ChannelRepository,
+                loadDynamicRepo(connection, Channel::class, ChannelRepository::class),
             )
     }
 
@@ -90,9 +89,12 @@ class ChannelRepositoryTest {
 
     @ParameterizedTest
     @MethodSource("repositories")
-    fun `insert a channel`(repository: ChannelRepository) {
+    fun `insert a channel`(repository: Repository<String, Channel>) {
+        val channelRepo =
+            repository as? ChannelRepository
+                ?: fail("Repository does not implement UserRepository")
         val newChannel = Channel("NewChannel", ChannelType.PUBLIC, System.currentTimeMillis(), false, 100, 10, false, 0L)
-        repository.insert(
+        channelRepo.insert(
             "NewChannel",
             ChannelType.PUBLIC,
             System.currentTimeMillis(),

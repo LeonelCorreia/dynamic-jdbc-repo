@@ -14,6 +14,7 @@ import java.time.LocalDate
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNotSame
+import kotlin.test.fail
 
 interface UserRepository : Repository<Long, User> {
     @Insert
@@ -32,7 +33,7 @@ class UserRepositoryTest {
         fun repositories() =
             listOf<Repository<Long, User>>(
                 // RepositoryReflect(connection, User::class),
-                loadDynamicRepo(connection, User::class, UserRepository::class) as UserRepository,
+                loadDynamicRepo(connection, User::class, UserRepository::class),
             )
     }
 
@@ -66,9 +67,12 @@ class UserRepositoryTest {
 
     @ParameterizedTest
     @MethodSource("repositories")
-    fun `delete a user`(repository: UserRepository) {
+    fun `delete a user`(repository: Repository<Long, User>) {
+        val userRepo =
+            repository as? UserRepository
+                ?: fail("Repository does not implement UserRepository")
         val tarantino =
-            repository.insert(
+            userRepo.insert(
                 "Tarantino",
                 "pulp@fiction.com",
                 Date.valueOf(LocalDate.of(1994, 1, 1)),
@@ -80,9 +84,12 @@ class UserRepositoryTest {
 
     @ParameterizedTest
     @MethodSource("repositories")
-    fun `insert a user`(repository: UserRepository) {
+    fun `insert a user`(repository: Repository<Long, User>) {
+        val userRepo =
+            repository as? UserRepository
+                ?: fail("Repository does not implement UserRepository")
         val christopher =
-            repository.insert(
+            userRepo.insert(
                 name = "Christopher Nolan",
                 email = "inception@email.com",
                 birthdate = Date.valueOf(LocalDate.of(1970, 7, 30)),
