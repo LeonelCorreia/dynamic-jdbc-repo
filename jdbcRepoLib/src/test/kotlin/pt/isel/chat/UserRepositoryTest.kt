@@ -1,10 +1,11 @@
+@file:Suppress("ktlint:standard:no-unused-imports")
+
 package pt.isel.chat
 
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import pt.isel.Insert
 import pt.isel.Repository
-import pt.isel.RepositoryReflect
 import pt.isel.loadDynamicRepo
 import java.sql.Connection
 import java.sql.Date
@@ -30,14 +31,8 @@ class UserRepositoryTest {
         @JvmStatic
         fun repositories() =
             listOf<Repository<Long, User>>(
-                RepositoryReflect(connection, User::class),
-                loadDynamicRepo(connection, User::class, UserRepository::class),
-            )
-
-        @JvmStatic
-        fun dynamicRepositories() =
-            listOf(
-                loadDynamicRepo(connection, User::class, UserRepository::class),
+                // RepositoryReflect(connection, User::class),
+                loadDynamicRepo(connection, User::class, UserRepository::class) as UserRepository,
             )
     }
 
@@ -70,7 +65,7 @@ class UserRepositoryTest {
     }
 
     @ParameterizedTest
-    @MethodSource("dynamicRepositories")
+    @MethodSource("repositories")
     fun `delete a user`(repository: UserRepository) {
         val tarantino =
             repository.insert(
@@ -84,7 +79,7 @@ class UserRepositoryTest {
     }
 
     @ParameterizedTest
-    @MethodSource("dynamicRepositories")
+    @MethodSource("repositories")
     fun `insert a user`(repository: UserRepository) {
         val christopher =
             repository.insert(
