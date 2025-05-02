@@ -28,13 +28,13 @@ class FakeSportsResultSet : ResultSet {
             mapOf(
                 "id" to 1,
                 "name" to "Rui Costa",
-                "birthdate" to Date.valueOf("1972-03-29")
+                "birthdate" to Date.valueOf("1972-03-29"),
             ),
             // President 2
             mapOf(
                 "id" to 2,
                 "name" to "Jorge Mendes",
-                "birthdate" to Date.valueOf("1970-05-15")
+                "birthdate" to Date.valueOf("1970-05-15"),
             ),
         )
 

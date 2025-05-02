@@ -7,13 +7,17 @@ import java.lang.classfile.ClassBuilder
 import java.lang.classfile.ClassFile
 import java.lang.classfile.ClassFile.ACC_PUBLIC
 import java.lang.classfile.CodeBuilder
+import java.lang.classfile.Interfaces
 import java.lang.constant.ClassDesc
 import java.lang.constant.ConstantDescs.*
 import java.lang.constant.MethodTypeDesc
 import java.net.URLClassLoader
 import java.sql.*
 import kotlin.reflect.*
+import kotlin.reflect.full.declaredFunctions
+import kotlin.reflect.full.declaredMemberProperties
 import kotlin.reflect.full.findAnnotations
+import kotlin.reflect.full.primaryConstructor
 
 val SUPER_CLASS_DESC = BaseRepository::class.descriptor()
 val CONNECTION_DESC = Connection::class.descriptor()
@@ -52,19 +56,21 @@ private val repositories = mutableMapOf<KClass<*>, BaseRepository<Any, Any>>()
  * Delegates to the `loadDynamicRepo` function with the Kotlin class representation.
  */
 
-fun <K : Any, T : Any> loadDynamicRepo(
+fun <K : Any, T : Any, R : Repository<K, T>> loadDynamicRepo(
     connection: Connection,
     domainKlass: Class<T>,
-) = loadDynamicRepo<K, T>(connection, domainKlass.kotlin)
+    repositoryInterface: Class<R>? = null,
+) = loadDynamicRepo(connection, domainKlass.kotlin, repositoryInterface?.kotlin)
 
 /**
  * Loads or creates a dynamic repository for the given domain class.
  * If a repository already exists, it returns the existing one, otherwise
  * it generates a new one using the buildRepositoryClassfile, loads it and instantiates it.
  */
-fun <K : Any, T : Any> loadDynamicRepo(
+fun <K : Any, T : Any, R : Repository<K, T>> loadDynamicRepo(
     connection: Connection,
     domainKlass: KClass<T>,
+    repositoryInterface: KClass<R>? = null,
 ): BaseRepository<K, T> {
     // calculate the parameters values
     addAuxRepos(domainKlass, connection, repositories)
@@ -75,7 +81,7 @@ fun <K : Any, T : Any> loadDynamicRepo(
     val props = buildProps(constructor, classifiers, pk, tableName, repositories)
 
     return repositories.getOrPut(domainKlass) {
-        buildRepositoryClassfile(domainKlass)
+        buildRepositoryClassfile(domainKlass, repositoryInterface)
             .constructors
             .first()
             .call(connection, classifiers, pk, tableName, constructor, props) as BaseRepository<Any, Any>
@@ -86,12 +92,40 @@ fun <K : Any, T : Any> loadDynamicRepo(
  * Generates the class file for a dynamic repository based on the given domain class.
  * Using Class-File API to build the repository implementation at runtime.
  */
-private fun <T : Any> buildRepositoryClassfile(domainKlass: KClass<T>): KClass<out Any> {
+private fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryClassfile(
+    domainKlass: KClass<T>,
+    repositoryInterface: KClass<R>?,
+): KClass<out Any> {
     val className = "RepositoryDyn${domainKlass.simpleName}"
-    buildRepositoryByteArray(className, domainKlass)
+    buildRepositoryByteArray(className, domainKlass, repositoryInterface)
     return rootLoader
         .loadClass("$PACKAGE_NAME.$className")
         .kotlin
+}
+
+private fun KFunction<*>.isInsertMethodForKCls(kCls: KClass<*>) =
+    parameters.matchConstructorParams(kCls) &&
+        findAnnotations(Insert::class).isNotEmpty() &&
+        returnType.classifier == kCls
+
+private fun List<KParameter>.matchConstructorParams(kClass: KClass<*>): Boolean {
+    val constructorParams = kClass.primaryConstructor?.parameters ?: return false
+
+    val (pkPropName, pkPropType) =
+        kClass.declaredMemberProperties
+            .firstOrNull { it.findAnnotations(Pk::class).isNotEmpty() }
+            ?.let { it.name to it.returnType }
+            ?: (null to null)
+    // Filter out optional parameters and the PK property if it is of type Int or Long
+    // because we assume that the Pk is a serial in the database when it is of these types.
+    val requiredParams =
+        constructorParams
+            .filter { !it.isOptional }
+            .filterNot { it.name == pkPropName && pkPropType?.classifier in setOf(Int::class, Long::class) }
+
+    return requiredParams.all { requiredParam ->
+        any { param -> param.name == requiredParam.name && param.type == requiredParam.type }
+    }
 }
 
 /**
@@ -99,15 +133,22 @@ private fun <T : Any> buildRepositoryClassfile(domainKlass: KClass<T>): KClass<o
  * class that extends RepositoryReflect, and then saves it to the
  * corresponding class file.
  */
-fun <T : Any> buildRepositoryByteArray(
+fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryByteArray(
     className: String,
     domainKlass: KClass<T>,
+    repositoryInterface: KClass<R>?,
 ) {
     val fullClassName = "$PACKAGE_NAME.$className"
     val generatedClassDesc = ClassDesc.of(fullClassName)
     val domainKlassDesc = domainKlass.descriptor()
     val constructor = domainKlass.constructors.first { it.parameters.isNotEmpty() }
     val props = buildPropsDyn(constructor)
+
+    val insertMethod =
+        repositoryInterface
+            ?.declaredFunctions
+            ?.first { it.isInsertMethodForKCls(domainKlass) }
+
     val bytes =
         ClassFile
             .of()
@@ -121,16 +162,31 @@ fun <T : Any> buildRepositoryByteArray(
                     MethodTypeDesc.of(
                         CD_void,
                         CONNECTION_DESC,
-                        MAP_DESC, // classifiers
-                        KPROPERTY_DESC, // pk
-                        CD_String, // tableName
-                        KFUNCTION_DESC, // constructor
-                        MAP_DESC, // props
+                        // classifiers
+                        MAP_DESC,
+                        // pk
+                        KPROPERTY_DESC,
+                        // tableName
+                        CD_String,
+                        // constructor
+                        KFUNCTION_DESC,
+                        // props
+                        MAP_DESC,
                     ),
                     ACC_PUBLIC,
                 ) { mb ->
                     mb.withCode { cb ->
                         cb.withInit(generatedClassDesc, SUPER_CLASS_DESC, CONNECTION_DESC)
+                    }
+                }
+
+                // Only implement the repository interface where the insert fun is declared
+                // if this interface has a valid method and only one method
+                insertMethod?.let {
+                    if (repositoryInterface.declaredFunctions.size == 1) {
+                        clb.withInterfaces(
+                            Interfaces.ofSymbols(ClassDesc.of(repositoryInterface.qualifiedName)).interfaces(),
+                        )
                     }
                 }
 
@@ -145,6 +201,29 @@ fun <T : Any> buildRepositoryByteArray(
                 ) { mb ->
                     mb.withCode { cb ->
                         cb.withMapRowToEntity(domainKlassDesc, SUPER_CLASS_DESC, constructor, props)
+                    }
+                }
+
+                // if suitable insert method is found, implements it
+                insertMethod?.also { kFun ->
+                    // Drop the first parameter (the receiver)
+                    val insertMthParams = kFun.parameters.drop(1)
+                    clb.withMethod(
+                        kFun.name,
+                        MethodTypeDesc.of(
+                            kFun.returnType.descriptor(),
+                            insertMthParams.map { kParam -> kParam.type.descriptor() },
+                        ),
+                        ACC_PUBLIC,
+                    ) { mb ->
+                        mb.withCode { cb ->
+                            cb.insertMethod(
+                                domainKlass,
+                                insertMthParams,
+                                SUPER_CLASS_DESC,
+                                CONNECTION_DESC,
+                            )
+                        }
                     }
                 }
             }
@@ -284,7 +363,11 @@ fun KClass<*>.descriptor(): ClassDesc =
             }
         }
     } else {
-        ClassDesc.of(this.java.name)
+        if (this == Unit::class) {
+            CD_void
+        } else {
+            ClassDesc.of(this.java.name)
+        }
     }
 
 /**
@@ -308,6 +391,153 @@ fun CodeBuilder.toKClass(): CodeBuilder {
         ),
     )
     return this
+}
+
+/**
+ * Function that generates bytecode for the insert method noted with @Insert
+ * and the necessary parameters.
+ */
+private fun CodeBuilder.insertMethod(
+    domainKcls: KClass<*>,
+    params: List<KParameter>,
+    superClassDesc: ClassDesc,
+    connectionDesc: ClassDesc,
+) {
+    val tableName =
+        domainKcls
+            .findAnnotations(Table::class)
+            .firstOrNull()
+            ?.name
+            ?: domainKcls.simpleName
+            ?: error("Missing table name")
+
+    val pkType =
+        domainKcls
+            .declaredMemberProperties
+            .firstOrNull { prop -> prop.findAnnotations(Pk::class).isNotEmpty() }
+            ?.returnType
+            ?: error("Missing @Pk for insert operation")
+
+    val columnsNames = columnsNames(domainKcls, params)
+    val sql = buildInsertQuery(tableName, columnsNames)
+    val insertParams = if (domainKcls.hasRelationships()) params.resolveRelationShips() else params.toParamInfo()
+    val availableSlot = params.firstSlotAvailableAfterParams()
+    val preparedStmtSlot = availableSlot
+    val affectedRows = availableSlot + 1
+    val resultSetSlot = availableSlot + 2
+
+    // Prepare statement
+    aload(0)
+    invokevirtual(
+        ClassDesc.of("${PACKAGE_NAME}.BaseRepository"),
+        "getConnection",
+        MethodTypeDesc.of(
+            connectionDesc,
+        ),
+    )
+    ldc(constantPool().stringEntry(sql))
+    iconst_1()
+    invokeinterface(
+        ClassDesc.of("java.sql.Connection"),
+        "prepareStatement",
+        MethodTypeDesc.of(
+            PreparedStatement::class.descriptor(),
+            String::class.descriptor(),
+            Int::class.descriptor(),
+        ),
+    )
+    astore(preparedStmtSlot)
+
+    // Set insert parameters
+    insertParams.forEachIndexed { index, param ->
+        aload(preparedStmtSlot)
+        bipush(index + 1)
+        loadParameter(param.slot, param.classifier)
+        if ((param.classifier as KClass<*>).java.isEnum) {
+            invokevirtual(
+                ClassDesc.of(param.classifier.qualifiedName),
+                "name",
+                MethodTypeDesc.of(String::class.descriptor()),
+            )
+            sipush(1111)
+        }
+        setValue(param)
+    }
+
+    // Execute update
+    aload(preparedStmtSlot)
+    invokeinterface(
+        ClassDesc.of("java.sql.PreparedStatement"),
+        "executeUpdate",
+        MethodTypeDesc.of(Int::class.descriptor()),
+    )
+    val labelNoAffectedRows = newLabel()
+    istore(affectedRows)
+    iload(affectedRows)
+    ifeq(labelNoAffectedRows)
+    if (domainKcls.hasSerialPrimaryKey()) {
+        val labelNoGeneratedKeys = newLabel()
+        // Get generated keys
+        aload(preparedStmtSlot)
+        invokeinterface(
+            ClassDesc.of("java.sql.PreparedStatement"),
+            "getGeneratedKeys",
+            MethodTypeDesc.of(ResultSet::class.descriptor()),
+        )
+        astore(resultSetSlot)
+
+        aload(resultSetSlot)
+        invokeinterface(
+            ClassDesc.of("java.sql.ResultSet"),
+            "next",
+            MethodTypeDesc.of(Boolean::class.descriptor()),
+        )
+        ifeq(labelNoGeneratedKeys)
+
+        // Build domain object
+        new_(domainKcls.descriptor())
+        dup()
+        aload(resultSetSlot)
+        iconst_1()
+        getPkValue(pkType)
+
+        params.forEachIndexed { index, param ->
+            val classfier = param.type.classifier ?: error("Missing classifier for parameter")
+            loadParameter(index + 1, classfier)
+        }
+
+        invokespecial(
+            domainKcls.descriptor(),
+            INIT_NAME,
+            MethodTypeDesc.of(
+                CD_void,
+                listOf(pkType.descriptor()) + params.map { it.type.descriptor() },
+            ),
+        )
+        areturn()
+        // Handle missing keys
+        labelBinding(labelNoGeneratedKeys)
+        createSqlException("No generated keys")
+        athrow()
+    } else {
+        new_(domainKcls.descriptor())
+        dup()
+        insertParams.forEach { param ->
+            loadParameter(param.slot, param.classifier)
+        }
+        invokespecial(
+            domainKcls.descriptor(),
+            INIT_NAME,
+            MethodTypeDesc.of(
+                CD_void,
+                params.map { it.type.descriptor() },
+            ),
+        )
+        areturn()
+    }
+    labelBinding(labelNoAffectedRows)
+    createSqlException("No rows affected, when inserting into $tableName")
+    athrow()
 }
 
 /**

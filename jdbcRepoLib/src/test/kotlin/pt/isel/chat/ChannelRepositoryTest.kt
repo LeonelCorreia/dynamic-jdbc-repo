@@ -3,6 +3,7 @@ package pt.isel.chat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
+import pt.isel.Insert
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
 import pt.isel.chat.dao.ChannelRepositoryJdbc
@@ -16,6 +17,20 @@ import kotlin.test.assertTrue
 
 val DB_URL = System.getenv("DB_URL") ?: throw Exception("Missing env var DB_URL")
 
+interface ChannelRepository : Repository<String, Channel> {
+    @Insert
+    fun insert(
+        name: String,
+        type: ChannelType,
+        createdAt: Long,
+        isArchived: Boolean,
+        maxMessageLength: Int,
+        maxMembers: Int,
+        isReadOnly: Boolean,
+        lastMessageTimestamp: Long,
+    ): Channel
+}
+
 class ChannelRepositoryTest {
     companion object {
         private val connection: Connection = DriverManager.getConnection(DB_URL)
@@ -24,7 +39,13 @@ class ChannelRepositoryTest {
         fun repositories() =
             listOf<Repository<String, Channel>>(
                 RepositoryReflect(connection, Channel::class),
-                loadDynamicRepo(connection, Channel::class),
+                loadDynamicRepo(connection, Channel::class, ChannelRepository::class),
+            )
+
+        @JvmStatic
+        fun dynamicRepositories() =
+            listOf(
+                loadDynamicRepo(connection, Channel::class, ChannelRepository::class),
             )
     }
 
@@ -72,5 +93,26 @@ class ChannelRepositoryTest {
         val channels: List<Channel> = repository.getAll()
         assertEquals(6, channels.size)
         assertTrue(channelRandom in channels)
+    }
+
+    @ParameterizedTest
+    @MethodSource("dynamicRepositories")
+    fun `insert a channel`(repository: ChannelRepository) {
+        val newChannel = Channel("NewChannel", ChannelType.PUBLIC, System.currentTimeMillis(), false, 100, 10, false, 0L)
+        repository.insert(
+            "NewChannel",
+            ChannelType.PUBLIC,
+            System.currentTimeMillis(),
+            false,
+            100,
+            10,
+            false,
+            0L,
+        )
+
+        val retrieved = repository.getById(newChannel.name)
+        assertNotNull(retrieved)
+        assertEquals(newChannel, retrieved)
+        repository.deleteById("NewChannel")
     }
 }

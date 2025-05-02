@@ -43,7 +43,7 @@ fun buildProps(
     classifiers: MutableMap<KProperty<*>, KClass<*>>,
     pk: KProperty<*>,
     tableName: String,
-    auxRepos: MutableMap<KClass<*>, BaseRepository<Any, Any>>
+    auxRepos: MutableMap<KClass<*>, BaseRepository<Any, Any>>,
 ): Map<GetPropInfo, SetPropInfo?> =
     constructor.parameters.let {
         it
@@ -83,7 +83,7 @@ fun buildProps(
 fun addAuxRepos(
     domainKlass: KClass<*>,
     connection: Connection,
-    auxRepos: MutableMap<KClass<*>, BaseRepository<Any, Any>>
+    auxRepos: MutableMap<KClass<*>, BaseRepository<Any, Any>>,
 ) {
     domainKlass
         .declaredMemberProperties

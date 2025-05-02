@@ -2,6 +2,7 @@ package pt.isel.chat
 
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
+import pt.isel.Insert
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
 import pt.isel.chat.dao.ChannelRepositoryJdbc
@@ -13,6 +14,16 @@ import java.time.LocalDate
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNotSame
+
+interface MessageRepository : Repository<Long, Message> {
+    @Insert
+    fun insert(
+        content: String,
+        timestamp: Long,
+        user: User,
+        channel: Channel,
+    ): Message
+}
 
 class MessageRepositoryTest {
     companion object {
