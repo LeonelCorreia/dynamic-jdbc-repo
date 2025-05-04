@@ -5,9 +5,10 @@ package pt.isel.chat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
-import pt.isel.Insert
 import pt.isel.Repository
+import pt.isel.RepositoryReflect
 import pt.isel.chat.dao.ChannelRepositoryJdbc
+import pt.isel.chat.repositories.ChannelRepository
 import pt.isel.loadDynamicRepo
 import java.sql.Connection
 import java.sql.DriverManager
@@ -15,29 +16,17 @@ import kotlin.test.*
 
 val DB_URL = System.getenv("DB_URL") ?: throw Exception("Missing env var DB_URL")
 
-interface ChannelRepository : Repository<String, Channel> {
-    @Insert
-    fun insert(
-        name: String,
-        type: ChannelType,
-        createdAt: Long,
-        isArchived: Boolean,
-        maxMessageLength: Int,
-        maxMembers: Int,
-        isReadOnly: Boolean,
-        lastMessageTimestamp: Long,
-    ): Channel
-}
-
 class ChannelRepositoryTest {
     companion object {
         private val connection: Connection = DriverManager.getConnection(DB_URL)
+        private val dynChannelRepo =
+            loadDynamicRepo(connection, Channel::class, ChannelRepository::class) as ChannelRepository
 
         @JvmStatic
         fun repositories() =
-            listOf<Repository<String, Channel>>(
-                // RepositoryReflect(connection, Channel::class),
-                loadDynamicRepo(connection, Channel::class, ChannelRepository::class),
+            listOf(
+                RepositoryReflect(connection, Channel::class),
+                dynChannelRepo as Repository<String, Channel>,
             )
     }
 
@@ -87,14 +76,10 @@ class ChannelRepositoryTest {
         assertTrue(channelRandom in channels)
     }
 
-    @ParameterizedTest
-    @MethodSource("repositories")
-    fun `insert a channel`(repository: Repository<String, Channel>) {
-        val channelRepo =
-            repository as? ChannelRepository
-                ?: fail("Repository does not implement UserRepository")
+    @Test
+    fun `insert a channel`() {
         val newChannel = Channel("NewChannel", ChannelType.PUBLIC, System.currentTimeMillis(), false, 100, 10, false, 0L)
-        channelRepo.insert(
+        dynChannelRepo.insert(
             "NewChannel",
             ChannelType.PUBLIC,
             System.currentTimeMillis(),
@@ -105,9 +90,9 @@ class ChannelRepositoryTest {
             0L,
         )
 
-        val retrieved = repository.getById(newChannel.name)
+        val retrieved = dynChannelRepo.getById(newChannel.name)
         assertNotNull(retrieved)
         assertEquals(newChannel, retrieved)
-        repository.deleteById("NewChannel")
+        dynChannelRepo.deleteById("NewChannel")
     }
 }

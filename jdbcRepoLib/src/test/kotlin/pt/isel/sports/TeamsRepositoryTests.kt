@@ -1,10 +1,14 @@
 package pt.isel.sports
 
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
 import pt.isel.loadDynamicRepo
+import pt.isel.sports.repositories.ClubRepository
+import pt.isel.sports.repositories.SportRepository
+import pt.isel.sports.repositories.TeamRepository
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.Statement.RETURN_GENERATED_KEYS
@@ -14,12 +18,30 @@ import kotlin.test.assertNotNull
 class TeamsRepositoryTests {
     companion object {
         private val connection: Connection = DriverManager.getConnection(DB_URL_SPORTS)
+        private val dynSportRepo =
+            loadDynamicRepo(
+                connection,
+                Sport::class,
+                SportRepository::class,
+            )
+        private val dynClubRepo =
+            loadDynamicRepo(
+                connection,
+                Club::class,
+                ClubRepository::class,
+            )
+        private val dynTeamRepo =
+            loadDynamicRepo(
+                connection,
+                Team::class,
+                TeamRepository::class,
+            ) as TeamRepository
 
         @JvmStatic
         fun repositories() =
-            listOf<Repository<Int, Team>>(
+            listOf(
                 RepositoryReflect(connection, Team::class),
-                loadDynamicRepo(connection, Team::class),
+                dynTeamRepo as Repository<Int, Team>,
             )
     }
 
@@ -114,5 +136,21 @@ class TeamsRepositoryTests {
         assertEquals(10, teams.size)
         repository.deleteById(pk)
         assertEquals(9, repository.getAll().size)
+    }
+
+    @Test
+    fun `insert a team`() {
+        val teamName = "Benfica B"
+        val sport = dynSportRepo.getById("Football")
+        assertNotNull(sport)
+        val club = dynClubRepo.getById(1)
+        assertNotNull(club)
+
+        val insertedTeam = dynTeamRepo.insert(teamName, club, sport)
+        assertNotNull(insertedTeam)
+        assertEquals(insertedTeam.name, teamName)
+        assertEquals(insertedTeam.teamSport, sport)
+        assertEquals(insertedTeam.teamClub, club)
+        dynTeamRepo.deleteById(insertedTeam.id)
     }
 }

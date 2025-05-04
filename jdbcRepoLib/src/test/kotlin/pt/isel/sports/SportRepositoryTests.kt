@@ -1,12 +1,15 @@
 package pt.isel.sports
 
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
 import pt.isel.loadDynamicRepo
 import pt.isel.sports.dao.SportRepositoryJdbc
+import pt.isel.sports.repositories.SportRepository
 import java.sql.Connection
 import java.sql.DriverManager
 import kotlin.test.assertEquals
@@ -16,12 +19,18 @@ import kotlin.test.assertNull
 class SportRepositoryTests {
     companion object {
         private val connection: Connection = DriverManager.getConnection(DB_URL_SPORTS)
+        private val dynSportRepo =
+            loadDynamicRepo(
+                connection,
+                Sport::class,
+                SportRepository::class,
+            ) as SportRepository
 
         @JvmStatic
         fun repositories() =
-            listOf<Repository<String, Sport>>(
+            listOf(
                 RepositoryReflect(connection, Sport::class),
-                loadDynamicRepo(connection, Sport::class),
+                dynSportRepo as Repository<String, Sport>,
             )
     }
 
@@ -86,5 +95,14 @@ class SportRepositoryTests {
         repository.deleteById(tableTennis.name)
         val tableTennis = repository.getById(tableTennis.name)
         assertNull(tableTennis)
+    }
+
+    @Test
+    fun `insert sport`() {
+        dynSportRepo.insert("Padel", SportType.TEAM, Location.INDOOR)
+        val padel = dynSportRepo.getById("Padel")
+        assertNotNull(padel)
+        assertEquals("Padel", padel!!.name)
+        dynSportRepo.deleteById(padel.name)
     }
 }

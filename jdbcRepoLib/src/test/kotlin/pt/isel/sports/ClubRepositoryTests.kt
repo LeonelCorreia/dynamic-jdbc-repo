@@ -5,9 +5,12 @@ import org.junit.jupiter.params.provider.MethodSource
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
 import pt.isel.loadDynamicRepo
+import pt.isel.sports.repositories.ClubRepository
+import pt.isel.sports.repositories.PresidentRepository
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.Statement.RETURN_GENERATED_KEYS
+import kotlin.test.Test
 import kotlin.test.assertEquals
 
 val DB_URL_SPORTS = System.getenv("DB_URL_SPORTS") ?: throw Exception("Missing env var DB_URL_SPORTS")
@@ -15,17 +18,18 @@ val DB_URL_SPORTS = System.getenv("DB_URL_SPORTS") ?: throw Exception("Missing e
 class ClubRepositoryTests {
     companion object {
         private val connection: Connection = DriverManager.getConnection(DB_URL_SPORTS)
+        private val presidentRepository: Repository<Int, President> =
+            loadDynamicRepo(connection, President::class, PresidentRepository::class)
+        private val dynClubRepo =
+            loadDynamicRepo(connection, Club::class, ClubRepository::class)
 
         @JvmStatic
         fun repositories() =
-            listOf<Repository<Int, Club>>(
+            listOf(
                 RepositoryReflect(connection, Club::class),
-                loadDynamicRepo(connection, Club::class),
+                dynClubRepo as Repository<Int, Club>,
             )
     }
-
-    private val presidentRepository: Repository<Int, President> =
-        RepositoryReflect(connection, President::class)
 
     @ParameterizedTest
     @MethodSource("repositories")
@@ -83,5 +87,18 @@ class ClubRepositoryTests {
         assertEquals(4, repository.getAll().size)
         repository.deleteById(pk)
         assertEquals(3, repository.getAll().size)
+    }
+
+    @Test
+    fun `insert a club`() {
+        val pauloRosado =
+            presidentRepository
+                .getAll()
+                .first { it.name.contains("Paulo Rosado") }
+
+        val newClub = Club(0, "Oriental de Lisboa", 1946, pauloRosado)
+        val insertedClub = (dynClubRepo as ClubRepository).insert(newClub.name, newClub.foundedYear, newClub.president)
+        assertEquals(newClub.copy(id = insertedClub.id), insertedClub)
+        dynClubRepo.deleteById(insertedClub.id)
     }
 }

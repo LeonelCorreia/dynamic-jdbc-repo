@@ -1,3 +1,5 @@
+@file:Suppress("ktlint:standard:no-wildcard-imports")
+
 package pt.isel
 
 import java.lang.classfile.CodeBuilder
@@ -7,10 +9,7 @@ import java.lang.constant.ConstantDescs.INIT_NAME
 import java.lang.constant.MethodTypeDesc
 import java.sql.Date
 import java.sql.SQLException
-import kotlin.reflect.KClass
-import kotlin.reflect.KClassifier
-import kotlin.reflect.KParameter
-import kotlin.reflect.KType
+import kotlin.reflect.*
 import kotlin.reflect.full.declaredMemberProperties
 import kotlin.reflect.full.findAnnotations
 import kotlin.reflect.full.primaryConstructor
@@ -48,8 +47,7 @@ fun columnsNames(
 
 data class ParamInfo(
     val slot: Int,
-    val name: String,
-    val classifier: KClassifier,
+    val cls: KClass<*>,
 )
 
 fun KClass<*>.hasSerialPrimaryKey(): Boolean =
@@ -73,27 +71,6 @@ fun CodeBuilder.createSqlException(message: String) {
     )
 }
 
-fun List<KParameter>.resolveRelationShips(): List<ParamInfo> {
-    val firstOffsetIndex =
-        indexOfFirst {
-            it.type.classifier == Long::class || it.type.classifier == Double::class
-        }
-
-    return mapIndexed { idx, kparam ->
-        val paramName = kparam.name ?: error("Missing parameter name")
-        val applyOffset = firstOffsetIndex != -1 && idx > firstOffsetIndex
-        val paramSlot = kparam.index + if (applyOffset) 1 else 0
-
-        if (!kparam.javaClass.isPrimitive && !kparam.type.javaClass.isEnum) {
-            // Go to auxRepos and get the entity by the pk if it came as null
-            // throw Exception else map the relation to the pk value
-            ParamInfo(paramSlot, paramName, kparam.type.classifier ?: error("Missing classifier"))
-        } else {
-            ParamInfo(paramSlot, paramName, kparam.type.classifier ?: error("Missing classifier"))
-        }
-    }
-}
-
 fun List<KParameter>.toParamInfo(): List<ParamInfo> {
     val firstOffsetIndex =
         indexOfFirst {
@@ -106,21 +83,25 @@ fun List<KParameter>.toParamInfo(): List<ParamInfo> {
 
         ParamInfo(
             paramSlot,
-            kparam.name ?: error("Missing parameter name"),
-            kparam.type.classifier ?: error("Missing classifier"),
+            kparam.type.classifier as KClass<*>,
         )
     }
 }
 
-fun KClass<*>.hasRelationships(): Boolean =
-    primaryConstructor?.parameters?.any {
-        !it.type.javaClass.isPrimitive && !it.type.javaClass.isEnum
-    } ?: error("No constructor found")
+fun ParamInfo.resolveRelationShip(): ParamInfo =
+    copy(
+        slot = slot,
+        cls = cls.getPkProp().returnType.classifier as KClass<*>,
+    )
+
+fun KClass<*>.getPkProp(): KProperty<*> =
+    declaredMemberProperties.firstOrNull { it.findAnnotations(Pk::class).isNotEmpty() }
+        ?: error("No primary key found for class $this")
 
 fun CodeBuilder.setValue(parameter: ParamInfo) {
     val (methodName, methodDesc) =
         when {
-            (parameter.classifier as KClass<*>).java.isEnum -> {
+            parameter.cls.java.isEnum -> {
                 "setObject" to
                     MethodTypeDesc.of(
                         Unit::class.descriptor(),
@@ -129,7 +110,7 @@ fun CodeBuilder.setValue(parameter: ParamInfo) {
                         Int::class.descriptor(),
                     )
             }
-            parameter.classifier == String::class -> {
+            parameter.cls == String::class -> {
                 "setString" to
                     MethodTypeDesc.of(
                         Unit::class.descriptor(),
@@ -137,35 +118,35 @@ fun CodeBuilder.setValue(parameter: ParamInfo) {
                         String::class.descriptor(),
                     )
             }
-            parameter.classifier == Int::class ->
+            parameter.cls == Int::class ->
                 "setInt" to
                     MethodTypeDesc.of(
                         Unit::class.descriptor(),
                         Int::class.descriptor(),
                         Int::class.descriptor(),
                     )
-            parameter.classifier == Date::class ->
+            parameter.cls == Date::class ->
                 "setDate" to
                     MethodTypeDesc.of(
                         Unit::class.descriptor(),
                         Int::class.descriptor(),
                         Date::class.descriptor(),
                     )
-            parameter.classifier == Long::class ->
+            parameter.cls == Long::class ->
                 "setLong" to
                     MethodTypeDesc.of(
                         Unit::class.descriptor(),
                         Int::class.descriptor(),
                         Long::class.descriptor(),
                     )
-            parameter.classifier == Boolean::class ->
+            parameter.cls == Boolean::class ->
                 "setBoolean" to
                     MethodTypeDesc.of(
                         Unit::class.descriptor(),
                         Int::class.descriptor(),
                         Boolean::class.descriptor(),
                     )
-            else -> throw Exception("Unsupported type for set operation in prepared statement: ${parameter.classifier}")
+            else -> throw Exception("Unsupported type for set operation in prepared statement: ${parameter.cls}")
         }
 
     invokeinterface(
@@ -228,5 +209,30 @@ fun CodeBuilder.loadParameter(
         Double::class -> dload(slot)
         Float::class -> fload(slot)
         else -> aload(slot)
+    }
+}
+
+fun KFunction<*>.isInsertMethodForKCls(kCls: KClass<*>) =
+    parameters.matchConstructorParams(kCls) &&
+        findAnnotations(Insert::class).isNotEmpty() &&
+        returnType.classifier == kCls
+
+fun List<KParameter>.matchConstructorParams(kClass: KClass<*>): Boolean {
+    val constructorParams = kClass.primaryConstructor?.parameters ?: return false
+
+    val (pkPropName, pkPropType) =
+        kClass.declaredMemberProperties
+            .firstOrNull { it.findAnnotations(Pk::class).isNotEmpty() }
+            ?.let { it.name to it.returnType }
+            ?: (null to null)
+    // Filter out optional parameters and the PK property if it is of type Int or Long
+    // because we assume that the Pk is a serial in the database when it is of these types.
+    val requiredParams =
+        constructorParams
+            .filter { !it.isOptional }
+            .filterNot { it.name == pkPropName && pkPropType?.classifier in setOf(Int::class, Long::class) }
+
+    return requiredParams.all { requiredParam ->
+        any { param -> param.name == requiredParam.name && param.type == requiredParam.type }
     }
 }

@@ -1,11 +1,14 @@
 package pt.isel.chat
 
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
-import pt.isel.Insert
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
 import pt.isel.chat.dao.ChannelRepositoryJdbc
+import pt.isel.chat.repositories.ChannelRepository
+import pt.isel.chat.repositories.MessageRepository
+import pt.isel.chat.repositories.UserRepository
 import pt.isel.loadDynamicRepo
 import java.sql.Connection
 import java.sql.DriverManager
@@ -15,25 +18,23 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNotSame
 
-interface MessageRepository : Repository<Long, Message> {
-    @Insert
-    fun insert(
-        content: String,
-        timestamp: Long,
-        user: User,
-        channel: Channel,
-    ): Message
-}
-
 class MessageRepositoryTest {
     companion object {
         private val connection: Connection = DriverManager.getConnection(DB_URL)
+        private val dynChannelRepo = loadDynamicRepo(connection, Channel::class, ChannelRepository::class)
+        private val dynUserRepo = loadDynamicRepo(connection, User::class, UserRepository::class)
+        private val dynMsgRepo =
+            loadDynamicRepo(
+                connection,
+                Message::class,
+                MessageRepository::class,
+            ) as MessageRepository
 
         @JvmStatic
         fun repositories() =
-            listOf<Repository<Long, Message>>(
+            listOf(
                 RepositoryReflect(connection, Message::class),
-                loadDynamicRepo(connection, Message::class),
+                dynMsgRepo as Repository<Long, Message>,
             )
     }
 
@@ -115,5 +116,23 @@ class MessageRepositoryTest {
         assertEquals(21, repository.getAll().size)
         repository.deleteById(pk)
         assertEquals(20, repository.getAll().size)
+    }
+
+    @Test
+    fun `insert a message`() {
+        val channel = dynChannelRepo.getById("General")
+        assertNotNull(channel)
+        val user = dynUserRepo.getById(2)
+        assertNotNull(user)
+        val msg =
+            dynMsgRepo.insert(
+                "With dynamic implementation of the jdbc repo we can support insert operations.",
+                LocalDate.now().toEpochDay(),
+                user,
+                channel,
+            )
+        assertNotNull(msg)
+        assertEquals("With dynamic implementation of the jdbc repo we can support insert operations.", msg.content)
+        dynMsgRepo.deleteById(msg.id)
     }
 }

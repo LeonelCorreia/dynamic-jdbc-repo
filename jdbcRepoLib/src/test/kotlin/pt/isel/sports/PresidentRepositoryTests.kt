@@ -1,10 +1,12 @@
 package pt.isel.sports
 
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import pt.isel.Repository
 import pt.isel.RepositoryReflect
 import pt.isel.loadDynamicRepo
+import pt.isel.sports.repositories.PresidentRepository
 import java.sql.Connection
 import java.sql.Date
 import java.sql.DriverManager
@@ -18,12 +20,18 @@ import kotlin.test.assertNull
 class PresidentRepositoryTests {
     companion object {
         private val connection: Connection = DriverManager.getConnection(DB_URL_SPORTS)
+        private val dynPresidentRepo =
+            loadDynamicRepo(
+                connection,
+                President::class,
+                PresidentRepository::class,
+            ) as PresidentRepository
 
         @JvmStatic
         fun repositories() =
-            listOf<Repository<Int, President>>(
+            listOf(
                 RepositoryReflect(connection, President::class),
-                loadDynamicRepo(connection, President::class),
+                dynPresidentRepo as Repository<Int, President>,
             )
     }
 
@@ -96,5 +104,12 @@ class PresidentRepositoryTests {
         repository.deleteById(pk)
         assertNull(repository.getById(pk))
         assertEquals(4, repository.getAll().size)
+    }
+
+    @Test
+    fun `insert president`() {
+        val luisFelipeViera = dynPresidentRepo.insert("Luis Felipe Viera", Date.valueOf(LocalDate.of(1949, 6, 22)))
+        assertEquals(luisFelipeViera.name, "Luis Felipe Viera")
+        dynPresidentRepo.deleteById(luisFelipeViera.id)
     }
 }

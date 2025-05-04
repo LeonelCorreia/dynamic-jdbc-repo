@@ -17,7 +17,6 @@ import kotlin.reflect.*
 import kotlin.reflect.full.declaredFunctions
 import kotlin.reflect.full.declaredMemberProperties
 import kotlin.reflect.full.findAnnotations
-import kotlin.reflect.full.primaryConstructor
 
 val SUPER_CLASS_DESC = BaseRepository::class.descriptor()
 val CONNECTION_DESC = Connection::class.descriptor()
@@ -101,31 +100,6 @@ private fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryClassfile(
     return rootLoader
         .loadClass("$PACKAGE_NAME.$className")
         .kotlin
-}
-
-private fun KFunction<*>.isInsertMethodForKCls(kCls: KClass<*>) =
-    parameters.matchConstructorParams(kCls) &&
-        findAnnotations(Insert::class).isNotEmpty() &&
-        returnType.classifier == kCls
-
-private fun List<KParameter>.matchConstructorParams(kClass: KClass<*>): Boolean {
-    val constructorParams = kClass.primaryConstructor?.parameters ?: return false
-
-    val (pkPropName, pkPropType) =
-        kClass.declaredMemberProperties
-            .firstOrNull { it.findAnnotations(Pk::class).isNotEmpty() }
-            ?.let { it.name to it.returnType }
-            ?: (null to null)
-    // Filter out optional parameters and the PK property if it is of type Int or Long
-    // because we assume that the Pk is a serial in the database when it is of these types.
-    val requiredParams =
-        constructorParams
-            .filter { !it.isOptional }
-            .filterNot { it.name == pkPropName && pkPropType?.classifier in setOf(Int::class, Long::class) }
-
-    return requiredParams.all { requiredParam ->
-        any { param -> param.name == requiredParam.name && param.type == requiredParam.type }
-    }
 }
 
 /**
@@ -220,8 +194,6 @@ fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryByteArray(
                             cb.insertMethod(
                                 domainKlass,
                                 insertMthParams,
-                                SUPER_CLASS_DESC,
-                                CONNECTION_DESC,
                             )
                         }
                     }
@@ -379,6 +351,183 @@ fun KType.descriptor(): ClassDesc {
 }
 
 /**
+ * Function that generates bytecode for the insert method noted with @Insert
+ * and the necessary parameters.
+ */
+private fun CodeBuilder.insertMethod(
+    domainKcls: KClass<*>,
+    params: List<KParameter>,
+) {
+    val tableName =
+        domainKcls.findAnnotations(Table::class).firstOrNull()?.name
+            ?: domainKcls.simpleName ?: error("Missing table name")
+
+    val pkType =
+        domainKcls.declaredMemberProperties
+            .firstOrNull { it.findAnnotations(Pk::class).isNotEmpty() }
+            ?.returnType ?: error("Missing @Pk for insert operation")
+
+    val columnNames = columnsNames(domainKcls, params)
+    val sql = buildInsertQuery(tableName, columnNames)
+    val insertParams = params.toParamInfo()
+    val baseSlot = params.firstSlotAvailableAfterParams()
+    val preparedStmtSlot = baseSlot
+    val affectedRowsSlot = baseSlot + 1
+    val resultSetSlot = baseSlot + 2
+
+    prepareStatement(sql, domainKcls, preparedStmtSlot)
+    setPreparedStatementParams(preparedStmtSlot, insertParams)
+
+    executeUpdateAndReturn(domainKcls, insertParams, preparedStmtSlot, affectedRowsSlot, resultSetSlot, tableName, pkType)
+}
+
+private fun CodeBuilder.prepareStatement(
+    sql: String,
+    domainKcls: KClass<*>,
+    targetSlot: Int,
+) {
+    aload(0)
+    invokevirtual(ClassDesc.of("${PACKAGE_NAME}.BaseRepository"), "getConnection", MethodTypeDesc.of(CONNECTION_DESC))
+    ldc(constantPool().stringEntry(sql))
+
+    val hasSerialPK = domainKcls.hasSerialPrimaryKey()
+    if (hasSerialPK) iconst_1()
+
+    val methodDesc =
+        if (hasSerialPK) {
+            MethodTypeDesc.of(PreparedStatement::class.descriptor(), String::class.descriptor(), Int::class.descriptor())
+        } else {
+            MethodTypeDesc.of(PreparedStatement::class.descriptor(), String::class.descriptor())
+        }
+
+    invokeinterface(ClassDesc.of("java.sql.Connection"), "prepareStatement", methodDesc)
+    astore(targetSlot)
+}
+
+private fun CodeBuilder.setPreparedStatementParams(
+    stmtSlot: Int,
+    insertParams: List<ParamInfo>,
+) {
+    insertParams.forEachIndexed { index, param ->
+        aload(stmtSlot)
+        bipush(index + 1)
+        loadParameter(param.slot, param.cls)
+
+        val isRelation =
+            !param.cls.java.isPrimitive &&
+                !param.cls.java.isEnum &&
+                param.cls != String::class &&
+                param.cls != Date::class
+
+        if (isRelation) {
+            invokevirtual(
+                ClassDesc.of(param.cls.qualifiedName),
+                "get${param.cls.getPkProp().name.replaceFirstChar { it.uppercase() }}",
+                MethodTypeDesc.of(
+                    param.cls
+                        .getPkProp()
+                        .returnType
+                        .descriptor(),
+                ),
+            )
+        }
+
+        if (param.cls.java.isEnum) {
+            invokevirtual(
+                ClassDesc.of(param.cls.qualifiedName),
+                "name",
+                MethodTypeDesc.of(String::class.descriptor()),
+            )
+            sipush(1111)
+        }
+
+        val stmtParam = if (isRelation) param.resolveRelationShip() else param
+        setValue(stmtParam)
+    }
+}
+
+private fun CodeBuilder.executeUpdateAndReturn(
+    domainKcls: KClass<*>,
+    insertParams: List<ParamInfo>,
+    stmtSlot: Int,
+    affectedSlot: Int,
+    resultSetSlot: Int,
+    tableName: String,
+    pkType: KType,
+) {
+    aload(stmtSlot)
+    invokeinterface(ClassDesc.of("java.sql.PreparedStatement"), "executeUpdate", MethodTypeDesc.of(Int::class.descriptor()))
+    istore(affectedSlot)
+
+    val labelNoAffected = newLabel()
+    iload(affectedSlot)
+    ifeq(labelNoAffected)
+
+    if (domainKcls.hasSerialPrimaryKey()) {
+        handleGeneratedKeyInsert(domainKcls, insertParams, stmtSlot, resultSetSlot, pkType)
+    } else {
+        buildDomainAndReturn(domainKcls, insertParams)
+    }
+
+    labelBinding(labelNoAffected)
+    createSqlException("No rows affected, when inserting into $tableName")
+    athrow()
+}
+
+private fun CodeBuilder.handleGeneratedKeyInsert(
+    domainKcls: KClass<*>,
+    insertParams: List<ParamInfo>,
+    stmtSlot: Int,
+    resultSetSlot: Int,
+    pkType: KType,
+) {
+    val labelNoKeys = newLabel()
+
+    aload(stmtSlot)
+    invokeinterface(ClassDesc.of("java.sql.PreparedStatement"), "getGeneratedKeys", MethodTypeDesc.of(ResultSet::class.descriptor()))
+    astore(resultSetSlot)
+
+    aload(resultSetSlot)
+    invokeinterface(ClassDesc.of("java.sql.ResultSet"), "next", MethodTypeDesc.of(Boolean::class.descriptor()))
+    ifeq(labelNoKeys)
+
+    new_(domainKcls.descriptor())
+    dup()
+    aload(resultSetSlot)
+    iconst_1()
+    getPkValue(pkType)
+
+    insertParams.forEach { loadParameter(it.slot, it.cls) }
+
+    invokespecial(
+        domainKcls.descriptor(),
+        INIT_NAME,
+        MethodTypeDesc.of(CD_void, listOf(pkType.descriptor()) + insertParams.map { it.cls.descriptor() }),
+    )
+    areturn()
+
+    labelBinding(labelNoKeys)
+    createSqlException("No generated keys")
+    athrow()
+}
+
+private fun CodeBuilder.buildDomainAndReturn(
+    domainKcls: KClass<*>,
+    insertParams: List<ParamInfo>,
+) {
+    new_(domainKcls.descriptor())
+    dup()
+    insertParams.forEach { loadParameter(it.slot, it.cls) }
+
+    invokespecial(
+        domainKcls.descriptor(),
+        INIT_NAME,
+        MethodTypeDesc.of(CD_void, insertParams.map { it.cls.descriptor() }),
+    )
+    areturn()
+}
+
+/**
  * Convert Class in KClass, that is in the stack
  */
 fun CodeBuilder.toKClass(): CodeBuilder {
@@ -391,153 +540,6 @@ fun CodeBuilder.toKClass(): CodeBuilder {
         ),
     )
     return this
-}
-
-/**
- * Function that generates bytecode for the insert method noted with @Insert
- * and the necessary parameters.
- */
-private fun CodeBuilder.insertMethod(
-    domainKcls: KClass<*>,
-    params: List<KParameter>,
-    superClassDesc: ClassDesc,
-    connectionDesc: ClassDesc,
-) {
-    val tableName =
-        domainKcls
-            .findAnnotations(Table::class)
-            .firstOrNull()
-            ?.name
-            ?: domainKcls.simpleName
-            ?: error("Missing table name")
-
-    val pkType =
-        domainKcls
-            .declaredMemberProperties
-            .firstOrNull { prop -> prop.findAnnotations(Pk::class).isNotEmpty() }
-            ?.returnType
-            ?: error("Missing @Pk for insert operation")
-
-    val columnsNames = columnsNames(domainKcls, params)
-    val sql = buildInsertQuery(tableName, columnsNames)
-    val insertParams = if (domainKcls.hasRelationships()) params.resolveRelationShips() else params.toParamInfo()
-    val availableSlot = params.firstSlotAvailableAfterParams()
-    val preparedStmtSlot = availableSlot
-    val affectedRows = availableSlot + 1
-    val resultSetSlot = availableSlot + 2
-
-    // Prepare statement
-    aload(0)
-    invokevirtual(
-        ClassDesc.of("${PACKAGE_NAME}.BaseRepository"),
-        "getConnection",
-        MethodTypeDesc.of(
-            connectionDesc,
-        ),
-    )
-    ldc(constantPool().stringEntry(sql))
-    iconst_1()
-    invokeinterface(
-        ClassDesc.of("java.sql.Connection"),
-        "prepareStatement",
-        MethodTypeDesc.of(
-            PreparedStatement::class.descriptor(),
-            String::class.descriptor(),
-            Int::class.descriptor(),
-        ),
-    )
-    astore(preparedStmtSlot)
-
-    // Set insert parameters
-    insertParams.forEachIndexed { index, param ->
-        aload(preparedStmtSlot)
-        bipush(index + 1)
-        loadParameter(param.slot, param.classifier)
-        if ((param.classifier as KClass<*>).java.isEnum) {
-            invokevirtual(
-                ClassDesc.of(param.classifier.qualifiedName),
-                "name",
-                MethodTypeDesc.of(String::class.descriptor()),
-            )
-            sipush(1111)
-        }
-        setValue(param)
-    }
-
-    // Execute update
-    aload(preparedStmtSlot)
-    invokeinterface(
-        ClassDesc.of("java.sql.PreparedStatement"),
-        "executeUpdate",
-        MethodTypeDesc.of(Int::class.descriptor()),
-    )
-    val labelNoAffectedRows = newLabel()
-    istore(affectedRows)
-    iload(affectedRows)
-    ifeq(labelNoAffectedRows)
-    if (domainKcls.hasSerialPrimaryKey()) {
-        val labelNoGeneratedKeys = newLabel()
-        // Get generated keys
-        aload(preparedStmtSlot)
-        invokeinterface(
-            ClassDesc.of("java.sql.PreparedStatement"),
-            "getGeneratedKeys",
-            MethodTypeDesc.of(ResultSet::class.descriptor()),
-        )
-        astore(resultSetSlot)
-
-        aload(resultSetSlot)
-        invokeinterface(
-            ClassDesc.of("java.sql.ResultSet"),
-            "next",
-            MethodTypeDesc.of(Boolean::class.descriptor()),
-        )
-        ifeq(labelNoGeneratedKeys)
-
-        // Build domain object
-        new_(domainKcls.descriptor())
-        dup()
-        aload(resultSetSlot)
-        iconst_1()
-        getPkValue(pkType)
-
-        params.forEachIndexed { index, param ->
-            val classfier = param.type.classifier ?: error("Missing classifier for parameter")
-            loadParameter(index + 1, classfier)
-        }
-
-        invokespecial(
-            domainKcls.descriptor(),
-            INIT_NAME,
-            MethodTypeDesc.of(
-                CD_void,
-                listOf(pkType.descriptor()) + params.map { it.type.descriptor() },
-            ),
-        )
-        areturn()
-        // Handle missing keys
-        labelBinding(labelNoGeneratedKeys)
-        createSqlException("No generated keys")
-        athrow()
-    } else {
-        new_(domainKcls.descriptor())
-        dup()
-        insertParams.forEach { param ->
-            loadParameter(param.slot, param.classifier)
-        }
-        invokespecial(
-            domainKcls.descriptor(),
-            INIT_NAME,
-            MethodTypeDesc.of(
-                CD_void,
-                params.map { it.type.descriptor() },
-            ),
-        )
-        areturn()
-    }
-    labelBinding(labelNoAffectedRows)
-    createSqlException("No rows affected, when inserting into $tableName")
-    athrow()
 }
 
 /**
