@@ -23,8 +23,7 @@ val KPROPERTY_DESC = KProperty::class.descriptor()
 val KFUNCTION_DESC = KFunction::class.descriptor()
 val MAP_DESC = Map::class.descriptor()
 val RESULTSET_DESC = ResultSet::class.descriptor()
-val KCLASS_DESC = KClass::class.descriptor()
-val CLASS_DESC = Class::class.descriptor()
+val PREPARED_STM_DESC = PreparedStatement::class.descriptor()
 
 private const val PACKAGE_NAME: String = "pt.isel"
 private val packageFolder = PACKAGE_NAME.replace(".", "/")
@@ -387,12 +386,12 @@ private fun CodeBuilder.prepareStatement(
 
     val methodDesc =
         if (hasSerialPK) {
-            MethodTypeDesc.of(PreparedStatement::class.descriptor(), String::class.descriptor(), Int::class.descriptor())
+            MethodTypeDesc.of(PREPARED_STM_DESC, String::class.descriptor(), Int::class.descriptor())
         } else {
-            MethodTypeDesc.of(PreparedStatement::class.descriptor(), String::class.descriptor())
+            MethodTypeDesc.of(PREPARED_STM_DESC, String::class.descriptor())
         }
 
-    invokeinterface(ClassDesc.of("java.sql.Connection"), "prepareStatement", methodDesc)
+    invokeinterface(CONNECTION_DESC, "prepareStatement", methodDesc)
     astore(targetSlot)
 }
 
@@ -407,7 +406,7 @@ private fun CodeBuilder.setPreparedStatementParams(
 
         if (param.isRelation()) {
             invokevirtual(
-                ClassDesc.of(param.cls.qualifiedName),
+                param.cls.descriptor(),
                 "get${param.cls.getPkProp().name.replaceFirstChar { it.uppercase() }}",
                 MethodTypeDesc.of(
                     param.cls
@@ -420,14 +419,14 @@ private fun CodeBuilder.setPreparedStatementParams(
 
         if (param.isEnum()) {
             invokevirtual(
-                ClassDesc.of(param.cls.qualifiedName),
+                param.cls.descriptor(),
                 "name",
                 MethodTypeDesc.of(String::class.descriptor()),
             )
             sipush(1111)
         }
 
-        val stmtParam = if (param.isRelation()) param.resolveRelationShip() else param
+        val stmtParam = if (param.isRelation()) param.convertParamInfoToPkInfo() else param
         setValue(stmtParam)
     }
 }
@@ -442,7 +441,7 @@ private fun CodeBuilder.executeUpdateAndReturn(
     pkType: KType,
 ) {
     aload(stmtSlot)
-    invokeinterface(ClassDesc.of("java.sql.PreparedStatement"), "executeUpdate", MethodTypeDesc.of(Int::class.descriptor()))
+    invokeinterface(PreparedStatement::class.descriptor(), "executeUpdate", MethodTypeDesc.of(Int::class.descriptor()))
     istore(affectedSlot)
 
     val labelNoAffected = newLabel()
@@ -470,11 +469,11 @@ private fun CodeBuilder.handleGeneratedKeyInsert(
     val labelNoKeys = newLabel()
 
     aload(stmtSlot)
-    invokeinterface(ClassDesc.of("java.sql.PreparedStatement"), "getGeneratedKeys", MethodTypeDesc.of(ResultSet::class.descriptor()))
+    invokeinterface(PreparedStatement::class.descriptor(), "getGeneratedKeys", MethodTypeDesc.of(ResultSet::class.descriptor()))
     astore(resultSetSlot)
 
     aload(resultSetSlot)
-    invokeinterface(ClassDesc.of("java.sql.ResultSet"), "next", MethodTypeDesc.of(Boolean::class.descriptor()))
+    invokeinterface(RESULTSET_DESC, "next", MethodTypeDesc.of(Boolean::class.descriptor()))
     ifeq(labelNoKeys)
 
     new_(domainKcls.descriptor())
@@ -485,11 +484,10 @@ private fun CodeBuilder.handleGeneratedKeyInsert(
 
     val orderedParameters = insertParams.sortedBy { it.ctorArg.index }
     orderedParameters.forEach { loadParameter(it.slot, it.cls) }
-    val ctorArgs = domainKcls.requirePrimaryConstructor()
     invokespecial(
         domainKcls.descriptor(),
         INIT_NAME,
-        MethodTypeDesc.of(CD_void, ctorArgs.map { it.type.descriptor() }),
+        MethodTypeDesc.of(CD_void, domainKcls.primaryCtorArgs().map { it.type.descriptor() }),
     )
     areturn()
 
@@ -506,28 +504,12 @@ private fun CodeBuilder.buildDomainAndReturn(
     dup()
     val orderedParameters = insertParams.sortedBy { it.ctorArg.index }
     orderedParameters.forEach { loadParameter(it.slot, it.cls) }
-    val ctorArgs = domainKcls.requirePrimaryConstructor()
     invokespecial(
         domainKcls.descriptor(),
         INIT_NAME,
-        MethodTypeDesc.of(CD_void, ctorArgs.map { it.type.descriptor() }),
+        MethodTypeDesc.of(CD_void, domainKcls.primaryCtorArgs().map { it.type.descriptor() }),
     )
     areturn()
-}
-
-/**
- * Convert Class in KClass, that is in the stack
- */
-fun CodeBuilder.toKClass(): CodeBuilder {
-    invokestatic(
-        ClassDesc.of("kotlin.jvm.internal.Reflection"),
-        "getOrCreateKotlinClass",
-        MethodTypeDesc.of(
-            KCLASS_DESC,
-            CLASS_DESC,
-        ),
-    )
-    return this
 }
 
 /**

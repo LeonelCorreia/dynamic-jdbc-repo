@@ -34,7 +34,7 @@ class MessageRepositoryTest {
         fun repositories() =
             listOf(
                 RepositoryReflect(connection, Message::class),
-                dynMsgRepo as Repository<Long, Message>,
+                dynMsgRepo,
             )
     }
 

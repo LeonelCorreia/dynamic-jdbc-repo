@@ -30,7 +30,7 @@ class SportRepositoryTests {
         fun repositories() =
             listOf(
                 RepositoryReflect(connection, Sport::class),
-                dynSportRepo as Repository<String, Sport>,
+                dynSportRepo,
             )
     }
 

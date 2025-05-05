@@ -3,11 +3,12 @@
 package pt.isel
 
 import java.lang.classfile.CodeBuilder
-import java.lang.constant.ClassDesc
 import java.lang.constant.ConstantDescs.CD_void
 import java.lang.constant.ConstantDescs.INIT_NAME
 import java.lang.constant.MethodTypeDesc
 import java.sql.Date
+import java.sql.PreparedStatement
+import java.sql.ResultSet
 import java.sql.SQLException
 import kotlin.reflect.*
 import kotlin.reflect.full.declaredMemberProperties
@@ -34,8 +35,7 @@ fun ParamInfo.isEnum(): Boolean = cls.java.isEnum
 
 fun ParamInfo.isRelation(): Boolean = !cls.java.isPrimitive && !cls.java.isEnum && cls != String::class && cls != Date::class
 
-fun KClass<*>.requirePrimaryConstructor(): List<KParameter> =
-    primaryConstructor?.parameters ?: error("Primary constructor not found for $this")
+fun KClass<*>.primaryCtorArgs(): List<KParameter> = primaryConstructor?.parameters ?: error("Primary constructor not found for $this")
 
 fun columnsNames(
     domainKcls: KClass<*>,
@@ -99,7 +99,7 @@ fun List<KParameter>.toParamInfo(domainKcls: KClass<*>): List<ParamInfo> {
     }
 }
 
-fun ParamInfo.resolveRelationShip(): ParamInfo =
+fun ParamInfo.convertParamInfoToPkInfo(): ParamInfo =
     copy(
         slot = slot,
         cls = cls.getPkProp().returnType.classifier as KClass<*>,
@@ -161,7 +161,7 @@ fun CodeBuilder.setValue(parameter: ParamInfo) {
         }
 
     invokeinterface(
-        ClassDesc.of("java.sql.PreparedStatement"),
+        PreparedStatement::class.descriptor(),
         methodName,
         methodDesc,
     )
@@ -189,7 +189,7 @@ fun CodeBuilder.getPkValue(pkType: KType) {
         }
 
     invokeinterface(
-        ClassDesc.of("java.sql.ResultSet"),
+        ResultSet::class.descriptor(),
         methodName,
         methodDesc,
     )

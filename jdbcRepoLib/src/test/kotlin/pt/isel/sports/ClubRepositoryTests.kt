@@ -27,7 +27,7 @@ class ClubRepositoryTests {
         fun repositories() =
             listOf(
                 RepositoryReflect(connection, Club::class),
-                dynClubRepo as Repository<Int, Club>,
+                dynClubRepo,
             )
     }
 

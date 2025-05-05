@@ -41,7 +41,7 @@ class TeamsRepositoryTests {
         fun repositories() =
             listOf(
                 RepositoryReflect(connection, Team::class),
-                dynTeamRepo as Repository<Int, Team>,
+                dynTeamRepo,
             )
     }
 

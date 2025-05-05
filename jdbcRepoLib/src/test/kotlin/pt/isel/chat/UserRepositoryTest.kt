@@ -28,7 +28,7 @@ class UserRepositoryTest {
         fun repositories() =
             listOf(
                 RepositoryReflect(connection, User::class),
-                dynUserRepo as Repository<Long, User>,
+                dynUserRepo,
             )
     }
 

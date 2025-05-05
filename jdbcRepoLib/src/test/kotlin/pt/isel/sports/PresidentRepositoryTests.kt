@@ -31,7 +31,7 @@ class PresidentRepositoryTests {
         fun repositories() =
             listOf(
                 RepositoryReflect(connection, President::class),
-                dynPresidentRepo as Repository<Int, President>,
+                dynPresidentRepo,
             )
     }
 
