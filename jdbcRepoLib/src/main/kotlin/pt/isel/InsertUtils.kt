@@ -24,30 +24,36 @@ fun buildInsertQuery(
     return "INSERT INTO $tableName ($columnNames) VALUES ($placeholders)"
 }
 
+fun KClass<*>.getTableName(): String = findAnnotations(Table::class).firstOrNull()?.name ?: simpleName ?: error("Missing table name")
+
+fun KClass<*>.getPrimaryKeyType(): KType =
+    declaredMemberProperties.firstOrNull { it.findAnnotations(Pk::class).isNotEmpty() }?.returnType
+        ?: error("Missing @Pk for insert operation")
+
+fun ParamInfo.isEnum(): Boolean = cls.java.isEnum
+
+fun ParamInfo.isRelation(): Boolean = !cls.java.isPrimitive && !cls.java.isEnum && cls != String::class && cls != Date::class
+
+fun KClass<*>.requirePrimaryConstructor(): List<KParameter> =
+    primaryConstructor?.parameters ?: error("Primary constructor not found for $this")
+
 fun columnsNames(
     domainKcls: KClass<*>,
-    params: List<KParameter>,
-): List<String> {
-    val paramInfo = params.mapNotNull { it.name?.let { name -> name to it.type } }.toMap()
-
-    return domainKcls.primaryConstructor
-        ?.parameters
-        ?.filter { ctorParam ->
-            val paramType = paramInfo[ctorParam.name]
-            paramType != null && paramType == ctorParam.type
-        }?.map { ctorParam ->
-            ctorParam
-                .findAnnotations(Column::class)
-                .firstOrNull()
-                ?.name
-                ?: ctorParam.name.orEmpty()
-        }
-        ?: error("No matching constructor found for $domainKcls with params $params")
-}
+    params: List<ParamInfo>,
+): List<String> =
+    params.map { paramInfo ->
+        paramInfo.ctorArg
+            .findAnnotations(Column::class)
+            .firstOrNull()
+            ?.name
+            ?: paramInfo.ctorArg.name
+            ?: error("No name found for parameter ${paramInfo.ctorArg.name} in $domainKcls")
+    }
 
 data class ParamInfo(
     val slot: Int,
     val cls: KClass<*>,
+    val ctorArg: KParameter,
 )
 
 fun KClass<*>.hasSerialPrimaryKey(): Boolean =
@@ -71,19 +77,24 @@ fun CodeBuilder.createSqlException(message: String) {
     )
 }
 
-fun List<KParameter>.toParamInfo(): List<ParamInfo> {
+fun List<KParameter>.toParamInfo(domainKcls: KClass<*>): List<ParamInfo> {
     val firstOffsetIndex =
         indexOfFirst {
             it.type.classifier == Long::class || it.type.classifier == Double::class
         }
+    val ctorParams = domainKcls.primaryConstructor?.parameters ?: error("No primary constructor found for $domainKcls")
 
     return mapIndexed { idx, kparam ->
         val applyOffset = firstOffsetIndex != -1 && idx > firstOffsetIndex
         val paramSlot = kparam.index + if (applyOffset) 1 else 0
+        val ctorParam =
+            ctorParams.firstOrNull { it.name == kparam.name && it.type == kparam.type }
+                ?: error("No matching constructor parameter found for ${kparam.name} in $domainKcls")
 
         ParamInfo(
             paramSlot,
             kparam.type.classifier as KClass<*>,
+            ctorParam,
         )
     }
 }

@@ -128,8 +128,8 @@ class MessageRepositoryTest {
             dynMsgRepo.insert(
                 "With dynamic implementation of the jdbc repo we can support insert operations.",
                 LocalDate.now().toEpochDay(),
-                user,
                 channel,
+                user,
             )
         assertNotNull(msg)
         assertEquals("With dynamic implementation of the jdbc repo we can support insert operations.", msg.content)

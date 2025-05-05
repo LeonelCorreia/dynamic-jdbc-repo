@@ -15,7 +15,6 @@ import java.net.URLClassLoader
 import java.sql.*
 import kotlin.reflect.*
 import kotlin.reflect.full.declaredFunctions
-import kotlin.reflect.full.declaredMemberProperties
 import kotlin.reflect.full.findAnnotations
 
 val SUPER_CLASS_DESC = BaseRepository::class.descriptor()
@@ -358,27 +357,20 @@ private fun CodeBuilder.insertMethod(
     domainKcls: KClass<*>,
     params: List<KParameter>,
 ) {
-    val tableName =
-        domainKcls.findAnnotations(Table::class).firstOrNull()?.name
-            ?: domainKcls.simpleName ?: error("Missing table name")
-
-    val pkType =
-        domainKcls.declaredMemberProperties
-            .firstOrNull { it.findAnnotations(Pk::class).isNotEmpty() }
-            ?.returnType ?: error("Missing @Pk for insert operation")
-
-    val columnNames = columnsNames(domainKcls, params)
+    val tableName = domainKcls.getTableName()
+    val pkType = domainKcls.getPrimaryKeyType()
+    val paramInfos = params.toParamInfo(domainKcls)
+    val columnNames = columnsNames(domainKcls, paramInfos)
     val sql = buildInsertQuery(tableName, columnNames)
-    val insertParams = params.toParamInfo()
-    val baseSlot = params.firstSlotAvailableAfterParams()
-    val preparedStmtSlot = baseSlot
-    val affectedRowsSlot = baseSlot + 1
-    val resultSetSlot = baseSlot + 2
 
-    prepareStatement(sql, domainKcls, preparedStmtSlot)
-    setPreparedStatementParams(preparedStmtSlot, insertParams)
+    val prepStmtSlot = params.firstSlotAvailableAfterParams()
+    val affectedRowsSlot = prepStmtSlot + 1
+    val resultSetSlot = prepStmtSlot + 2
 
-    executeUpdateAndReturn(domainKcls, insertParams, preparedStmtSlot, affectedRowsSlot, resultSetSlot, tableName, pkType)
+    prepareStatement(sql, domainKcls, prepStmtSlot)
+    setPreparedStatementParams(prepStmtSlot, paramInfos)
+
+    executeUpdateAndReturn(domainKcls, paramInfos, prepStmtSlot, affectedRowsSlot, resultSetSlot, tableName, pkType)
 }
 
 private fun CodeBuilder.prepareStatement(
@@ -413,13 +405,7 @@ private fun CodeBuilder.setPreparedStatementParams(
         bipush(index + 1)
         loadParameter(param.slot, param.cls)
 
-        val isRelation =
-            !param.cls.java.isPrimitive &&
-                !param.cls.java.isEnum &&
-                param.cls != String::class &&
-                param.cls != Date::class
-
-        if (isRelation) {
+        if (param.isRelation()) {
             invokevirtual(
                 ClassDesc.of(param.cls.qualifiedName),
                 "get${param.cls.getPkProp().name.replaceFirstChar { it.uppercase() }}",
@@ -432,7 +418,7 @@ private fun CodeBuilder.setPreparedStatementParams(
             )
         }
 
-        if (param.cls.java.isEnum) {
+        if (param.isEnum()) {
             invokevirtual(
                 ClassDesc.of(param.cls.qualifiedName),
                 "name",
@@ -441,7 +427,7 @@ private fun CodeBuilder.setPreparedStatementParams(
             sipush(1111)
         }
 
-        val stmtParam = if (isRelation) param.resolveRelationShip() else param
+        val stmtParam = if (param.isRelation()) param.resolveRelationShip() else param
         setValue(stmtParam)
     }
 }
@@ -497,12 +483,13 @@ private fun CodeBuilder.handleGeneratedKeyInsert(
     iconst_1()
     getPkValue(pkType)
 
-    insertParams.forEach { loadParameter(it.slot, it.cls) }
-
+    val orderedParameters = insertParams.sortedBy { it.ctorArg.index }
+    orderedParameters.forEach { loadParameter(it.slot, it.cls) }
+    val ctorArgs = domainKcls.requirePrimaryConstructor()
     invokespecial(
         domainKcls.descriptor(),
         INIT_NAME,
-        MethodTypeDesc.of(CD_void, listOf(pkType.descriptor()) + insertParams.map { it.cls.descriptor() }),
+        MethodTypeDesc.of(CD_void, ctorArgs.map { it.type.descriptor() }),
     )
     areturn()
 
@@ -517,12 +504,13 @@ private fun CodeBuilder.buildDomainAndReturn(
 ) {
     new_(domainKcls.descriptor())
     dup()
-    insertParams.forEach { loadParameter(it.slot, it.cls) }
-
+    val orderedParameters = insertParams.sortedBy { it.ctorArg.index }
+    orderedParameters.forEach { loadParameter(it.slot, it.cls) }
+    val ctorArgs = domainKcls.requirePrimaryConstructor()
     invokespecial(
         domainKcls.descriptor(),
         INIT_NAME,
-        MethodTypeDesc.of(CD_void, insertParams.map { it.cls.descriptor() }),
+        MethodTypeDesc.of(CD_void, ctorArgs.map { it.type.descriptor() }),
     )
     areturn()
 }

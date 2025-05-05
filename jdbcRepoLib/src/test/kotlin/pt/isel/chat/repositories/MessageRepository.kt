@@ -11,7 +11,7 @@ interface MessageRepository : Repository<Long, Message> {
     fun insert(
         content: String,
         timestamp: Long,
-        user: User,
         channel: Channel,
+        user: User,
     ): Message
 }

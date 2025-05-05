@@ -9,7 +9,7 @@ interface UserRepository : Repository<Long, User> {
     @Insert
     fun insert(
         name: String,
-        email: String,
         birthdate: Date,
+        email: String,
     ): User
 }
