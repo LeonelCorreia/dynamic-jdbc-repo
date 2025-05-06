@@ -15,18 +15,15 @@ import java.net.URLClassLoader
 import java.sql.*
 import kotlin.reflect.*
 import kotlin.reflect.full.declaredFunctions
-import kotlin.reflect.full.findAnnotations
 
 val SUPER_CLASS_DESC = BaseRepository::class.descriptor()
 val CONNECTION_DESC = Connection::class.descriptor()
 val KPROPERTY_DESC = KProperty::class.descriptor()
-val KFUNCTION_DESC = KFunction::class.descriptor()
-val MAP_DESC = Map::class.descriptor()
 val RESULTSET_DESC = ResultSet::class.descriptor()
 val PREPARED_STM_DESC = PreparedStatement::class.descriptor()
+const val THIS_SLOT = 0
 
 private const val PACKAGE_NAME: String = "pt.isel"
-private val packageFolder = PACKAGE_NAME.replace(".", "/")
 
 private val root =
     RepositoryReflect::class.java
@@ -69,19 +66,26 @@ fun <K : Any, T : Any, R : Repository<K, T>> loadDynamicRepo(
     domainKlass: KClass<T>,
     repositoryInterface: KClass<R>? = null,
 ): BaseRepository<K, T> {
+    val className = "RepositoryDyn${domainKlass.simpleName}"
+    val generatedClassDesc = ClassDesc.of("$PACKAGE_NAME.$className")
     // calculate the parameters values
-    addAuxRepos(domainKlass, connection, repositories)
+    addDynAuxRepos(domainKlass, connection, repositories)
     val classifiers = buildClassifiers(domainKlass)
-    val constructor = buildConstructor(domainKlass)
     val pk: KProperty<*> = buildPk(domainKlass)
     val tableName = buildTableName(domainKlass)
-    val props = buildProps(constructor, classifiers, pk, tableName, repositories)
+    val getProps = buildDynamicGetPropInfo(domainKlass, generatedClassDesc, classifiers, tableName, repositories)
+    val params = listOf(connection, pk, tableName) + repositories.values
 
     return repositories.getOrPut(domainKlass) {
-        buildRepositoryClassfile(domainKlass, repositoryInterface)
-            .constructors
+        buildRepositoryClassfile(
+            domainKlass,
+            repositoryInterface,
+            getProps,
+            className,
+            generatedClassDesc,
+        ).constructors
             .first()
-            .call(connection, classifiers, pk, tableName, constructor, props) as BaseRepository<Any, Any>
+            .call(*params.toTypedArray()) as BaseRepository<Any, Any>
     } as BaseRepository<K, T>
 }
 
@@ -92,9 +96,12 @@ fun <K : Any, T : Any, R : Repository<K, T>> loadDynamicRepo(
 private fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryClassfile(
     domainKlass: KClass<T>,
     repositoryInterface: KClass<R>?,
+    props: List<GetPropInfo>,
+    className: String,
+    generatedClassDesc: ClassDesc,
 ): KClass<out Any> {
-    val className = "RepositoryDyn${domainKlass.simpleName}"
-    buildRepositoryByteArray(className, domainKlass, repositoryInterface)
+    val fullClassName = "$PACKAGE_NAME.$className"
+    buildRepositoryByteArray(domainKlass, repositoryInterface, props, fullClassName, generatedClassDesc)
     return rootLoader
         .loadClass("$PACKAGE_NAME.$className")
         .kotlin
@@ -106,15 +113,13 @@ private fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryClassfile(
  * corresponding class file.
  */
 fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryByteArray(
-    className: String,
     domainKlass: KClass<T>,
     repositoryInterface: KClass<R>?,
+    props: List<GetPropInfo>,
+    fullClassName: String,
+    generatedClassDesc: ClassDesc,
 ) {
-    val fullClassName = "$PACKAGE_NAME.$className"
-    val generatedClassDesc = ClassDesc.of(fullClassName)
     val domainKlassDesc = domainKlass.descriptor()
-    val constructor = domainKlass.constructors.first { it.parameters.isNotEmpty() }
-    val props = buildPropsDyn(constructor)
 
     val insertMethod =
         repositoryInterface
@@ -128,22 +133,13 @@ fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryByteArray(
                 // the class generated is a subclass of RepositoryReflect
                 clb.withSuperclass(SUPER_CLASS_DESC)
                 clb.declareFields()
-                clb.defineFieldGetters(generatedClassDesc, 0)
+                clb.defineFieldGetters(generatedClassDesc)
+                val paramDescList = listOf(CONNECTION_DESC, KPROPERTY_DESC, CD_String) + List(repositories.size) { SUPER_CLASS_DESC }
                 clb.withMethod(
                     INIT_NAME,
                     MethodTypeDesc.of(
                         CD_void,
-                        CONNECTION_DESC,
-                        // classifiers
-                        MAP_DESC,
-                        // pk
-                        KPROPERTY_DESC,
-                        // tableName
-                        CD_String,
-                        // constructor
-                        KFUNCTION_DESC,
-                        // props
-                        MAP_DESC,
+                        paramDescList,
                     ),
                     ACC_PUBLIC,
                 ) { mb ->
@@ -172,7 +168,8 @@ fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryByteArray(
                     ACC_PUBLIC,
                 ) { mb ->
                     mb.withCode { cb ->
-                        cb.withMapRowToEntity(domainKlassDesc, SUPER_CLASS_DESC, constructor, props)
+                        val constructor = buildConstructor(domainKlass)
+                        cb.withMapRowToEntity(domainKlassDesc, constructor, props)
                     }
                 }
 
@@ -204,11 +201,6 @@ fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryByteArray(
 
 private fun ClassBuilder.declareFields() {
     withField(
-        "classifiers",
-        MAP_DESC,
-        ACC_PUBLIC,
-    )
-    withField(
         "pk",
         KPROPERTY_DESC,
         ACC_PUBLIC,
@@ -218,45 +210,24 @@ private fun ClassBuilder.declareFields() {
         CD_String,
         ACC_PUBLIC,
     )
-    withField(
-        "constructor",
-        KFUNCTION_DESC,
-        ACC_PUBLIC,
-    )
-    withField(
-        "props",
-        MAP_DESC,
-        ACC_PUBLIC,
-    )
+
+    repositories.values.forEach { repo ->
+        withField(
+            repo::class.simpleName,
+            SUPER_CLASS_DESC,
+            ACC_PUBLIC,
+        )
+    }
 }
 
-private fun ClassBuilder.defineFieldGetters(
-    generatedClassDesc: ClassDesc,
-    thisSlot: Int,
-) {
-    withMethod(
-        "getClassifiers",
-        MethodTypeDesc.of(MAP_DESC),
-        ACC_PUBLIC,
-    ) { mb ->
-        mb.withCode { cb ->
-            cb.aload(thisSlot)
-            cb.getfield(
-                generatedClassDesc,
-                "classifiers",
-                MAP_DESC,
-            )
-            cb.areturn()
-        }
-    }
-
+private fun ClassBuilder.defineFieldGetters(generatedClassDesc: ClassDesc) {
     withMethod(
         "getPk",
         MethodTypeDesc.of(KPROPERTY_DESC),
         ACC_PUBLIC,
     ) { mb ->
         mb.withCode { cb ->
-            cb.aload(thisSlot)
+            cb.aload(THIS_SLOT)
             cb.getfield(
                 generatedClassDesc,
                 "pk",
@@ -272,7 +243,7 @@ private fun ClassBuilder.defineFieldGetters(
         ACC_PUBLIC,
     ) { mb ->
         mb.withCode { cb ->
-            cb.aload(thisSlot)
+            cb.aload(THIS_SLOT)
             cb.getfield(
                 generatedClassDesc,
                 "tableName",
@@ -282,35 +253,22 @@ private fun ClassBuilder.defineFieldGetters(
         }
     }
 
-    withMethod(
-        "getConstructor",
-        MethodTypeDesc.of(KFUNCTION_DESC),
-        ACC_PUBLIC,
-    ) { mb ->
-        mb.withCode { cb ->
-            cb.aload(thisSlot)
-            cb.getfield(
-                generatedClassDesc,
-                "constructor",
-                KFUNCTION_DESC,
-            )
-            cb.areturn()
-        }
-    }
-
-    withMethod(
-        "getProps",
-        MethodTypeDesc.of(MAP_DESC),
-        ACC_PUBLIC,
-    ) { mb ->
-        mb.withCode { cb ->
-            cb.aload(thisSlot)
-            cb.getfield(
-                generatedClassDesc,
-                "props",
-                MAP_DESC,
-            )
-            cb.areturn()
+    repositories.values.forEach { repo ->
+        val repoName = repo::class.simpleName
+        withMethod(
+            "get$repoName",
+            MethodTypeDesc.of(SUPER_CLASS_DESC),
+            ACC_PUBLIC,
+        ) { mb ->
+            mb.withCode { cb ->
+                cb.aload(THIS_SLOT)
+                cb.getfield(
+                    generatedClassDesc,
+                    repoName,
+                    SUPER_CLASS_DESC,
+                )
+                cb.areturn()
+            }
         }
     }
 }
@@ -353,23 +311,22 @@ fun KType.descriptor(): ClassDesc {
  * and the necessary parameters.
  */
 private fun CodeBuilder.insertMethod(
-    domainKcls: KClass<*>,
+    domainKlass: KClass<*>,
     params: List<KParameter>,
 ) {
-    val tableName = domainKcls.getTableName()
-    val pkType = domainKcls.getPrimaryKeyType()
-    val paramInfos = params.toParamInfo(domainKcls)
-    val columnNames = columnsNames(domainKcls, paramInfos)
+    val tableName = domainKlass.getTableName()
+    val pkType = domainKlass.getPrimaryKeyType()
+    val paramInfos = params.toParamInfo(domainKlass)
+    val columnNames = columnsNames(domainKlass, paramInfos)
     val sql = buildInsertQuery(tableName, columnNames)
 
     val prepStmtSlot = params.firstSlotAvailableAfterParams()
     val affectedRowsSlot = prepStmtSlot + 1
     val resultSetSlot = prepStmtSlot + 2
-
-    prepareStatement(sql, domainKcls, prepStmtSlot)
+    prepareStatement(sql, domainKlass, prepStmtSlot)
     setPreparedStatementParams(prepStmtSlot, paramInfos)
 
-    executeUpdateAndReturn(domainKcls, paramInfos, prepStmtSlot, affectedRowsSlot, resultSetSlot, tableName, pkType)
+    executeUpdateAndReturn(domainKlass, paramInfos, prepStmtSlot, affectedRowsSlot, resultSetSlot, tableName, pkType)
 }
 
 private fun CodeBuilder.prepareStatement(
@@ -497,38 +454,20 @@ private fun CodeBuilder.handleGeneratedKeyInsert(
 }
 
 private fun CodeBuilder.buildDomainAndReturn(
-    domainKcls: KClass<*>,
+    domainKlass: KClass<*>,
     insertParams: List<ParamInfo>,
 ) {
-    new_(domainKcls.descriptor())
+    new_(domainKlass.descriptor())
     dup()
     val orderedParameters = insertParams.sortedBy { it.ctorArg.index }
     orderedParameters.forEach { loadParameter(it.slot, it.cls) }
     invokespecial(
-        domainKcls.descriptor(),
+        domainKlass.descriptor(),
         INIT_NAME,
-        MethodTypeDesc.of(CD_void, domainKcls.primaryCtorArgs().map { it.type.descriptor() }),
+        MethodTypeDesc.of(CD_void, domainKlass.primaryCtorArgs().map { it.type.descriptor() }),
     )
     areturn()
 }
-
-/**
- * Helper function to build the props with the name of the columns and its kotlin class representative.
- *
- * @param constructor The constructor for the domain class
- * @return A map of the column names for the ResultSet and their respective kotlin class representative
- */
-private fun buildPropsDyn(constructor: KFunction<Any>): Map<KParameter, String> =
-    constructor.parameters.let {
-        it.associateWith { constParam ->
-            val columnName =
-                constParam.findAnnotations(Column::class).firstOrNull()?.name
-                    ?: constParam.name
-                    ?: throw IllegalStateException("Missing name for column in table.")
-
-            columnName
-        }
-    }
 
 private data class ParamSlot(
     val slot: Int,
@@ -540,10 +479,9 @@ private fun CodeBuilder.withInit(
     superClassDesc: ClassDesc,
     connectionDesc: ClassDesc,
 ) {
-    val thisSlot = 0
     val connectionSlot = 1
 
-    aload(thisSlot)
+    aload(THIS_SLOT)
     aload(connectionSlot)
     invokespecial(
         superClassDesc,
@@ -554,30 +492,16 @@ private fun CodeBuilder.withInit(
         ),
     )
     // load the values into the val's
-    loadVals(generatedClassDesc, thisSlot)
+    loadVals(generatedClassDesc)
     return_()
 }
 
-private fun CodeBuilder.loadVals(
-    generatedClassDesc: ClassDesc,
-    thisSlot: Int,
-) {
-    val classifiersSlot = 2
-    val pkSlot = 3
-    val tableNameSlot = 4
-    val constructorSlot = 5
-    val propsSlot = 6
+private fun CodeBuilder.loadVals(generatedClassDesc: ClassDesc) {
+    val pkSlot = 2
+    val tableNameSlot = 3
+    val reposStartSlot = 4
 
-    // assign classifiers
-    aload(thisSlot)
-    aload(classifiersSlot)
-    putfield(
-        generatedClassDesc,
-        "classifiers",
-        MAP_DESC,
-    )
-
-    aload(thisSlot)
+    aload(THIS_SLOT)
     aload(pkSlot)
     putfield(
         generatedClassDesc,
@@ -585,7 +509,7 @@ private fun CodeBuilder.loadVals(
         KPROPERTY_DESC,
     )
 
-    aload(thisSlot)
+    aload(THIS_SLOT)
     aload(tableNameSlot)
     putfield(
         generatedClassDesc,
@@ -593,40 +517,31 @@ private fun CodeBuilder.loadVals(
         CD_String,
     )
 
-    aload(thisSlot)
-    aload(constructorSlot)
-    putfield(
-        generatedClassDesc,
-        "constructor",
-        KFUNCTION_DESC,
-    )
-
-    aload(thisSlot)
-    aload(propsSlot)
-    putfield(
-        generatedClassDesc,
-        "props",
-        MAP_DESC,
-    )
+    repositories.values.forEachIndexed { index, repo ->
+        val slot = reposStartSlot + index
+        aload(THIS_SLOT)
+        aload(slot)
+        putfield(
+            generatedClassDesc,
+            repo::class.simpleName,
+            SUPER_CLASS_DESC,
+        )
+    }
 }
 
 /**
  * Helper function that generates bytecode for the mapToRowEntity function.
  *
  * @param domainKlassDesc Descriptor for the domain class
- * @param superClassDesc Descriptor for the superclass that has getValue method
  * @param constructor Constructor of the domain class
  * @param props Map with the column names and respective kotlin class representatives
  */
 private fun CodeBuilder.withMapRowToEntity(
     domainKlassDesc: ClassDesc,
-    superClassDesc: ClassDesc,
     constructor: KFunction<Any>,
-    props: Map<KParameter, String>,
+    props: List<GetPropInfo>,
 ) {
     // constants for special local variable slots
-    val thisSlot = 0
-    val resultSetSlot = 1
     val firstConstructorParamSlot = 2
 
     // stores the indexes and types of the local variables
@@ -643,11 +558,12 @@ private fun CodeBuilder.withMapRowToEntity(
         localIndex += if (klass == Long::class || klass == Double::class) 2 else 1
     }
 
-    props.toList().forEachIndexed { index, (kParam, columnName) ->
+    props.forEachIndexed { index, getPropInfo ->
         val targetSlot = paramSlots[index].slot
-        val classifier = kParam.type.classifier as KClass<*>
-        val boxedDesc = classifier.javaObjectType.kotlin.descriptor() // get the descriptor of the boxed type
-        loadColumnValue(thisSlot, resultSetSlot, superClassDesc, boxedDesc, columnName)
+        getPropInfo as GetPropInfo.Dynamic
+        val classifier = getPropInfo.kParam.type.classifier as KClass<*>
+        val getter = getPropInfo.getter
+        getter()
         storeValueInSlot(classifier, targetSlot)
     }
 
@@ -662,122 +578,20 @@ private fun CodeBuilder.withMapRowToEntity(
 }
 
 /**
- * Helper function to load the value of a column from the ResultSet.
- * It uses the superclass getValue method to obtain the value
- * @param thisRefSlot The slot for the reference of the Superclass
- * @param resultSetSlot The slot for the ResultSet
- * @param superClassDesc The descriptor of the superclass
- * @param boxedDesc The descriptor of the boxed type
- * @param columnName The name of the column to be loaded
- */
-private fun CodeBuilder.loadColumnValue(
-    thisRefSlot: Int,
-    resultSetSlot: Int,
-    superClassDesc: ClassDesc,
-    boxedDesc: ClassDesc,
-    columnName: String,
-) {
-    // push superclass to be able to call getValue that is from the extended class
-    aload(thisRefSlot)
-    // create entry in constant pool with the name of the parameter for the result set
-    ldc(constantPool().stringEntry(columnName))
-    // call superclass.getValue(KClass, String)
-    invokevirtual(
-        superClassDesc,
-        "findGetterByParamName",
-        MethodTypeDesc.of(
-            ClassDesc.of("kotlin.jvm.functions.Function1"),
-            CD_String,
-        ),
-    )
-    // push the resultSet to the stack
-    aload(resultSetSlot)
-    // call the function returned by getValue, (ResultSet) -> Any implements Function<ResultSet, Object>
-    invokeinterface(
-        ClassDesc.of("kotlin.jvm.functions.Function1"),
-        "invoke",
-        MethodTypeDesc.of(CD_Object, CD_Object),
-    )
-    // cast to the expected boxed type
-    checkcast(boxedDesc)
-}
-
-/**
  * Helper function to store the value in the local variable slot.
  * @param type The type of the value to be stored
  * @param targetSlot The slot where the value will be stored
  */
-private fun CodeBuilder.storeValueInSlot(
+fun CodeBuilder.storeValueInSlot(
     type: KClass<*>,
     targetSlot: Int,
 ) {
-    // store the result according to its type, also primitive values need unboxing
+    // store the result according to its type
     when (type) {
-        Long::class -> {
-            // needs unboxing from Long to long
-            invokevirtual(
-                CD_Long,
-                "longValue",
-                MethodTypeDesc.of(CD_long),
-            )
-            lstore(targetSlot)
-        }
-        Double::class -> {
-            // needs unboxing from Double to double
-            invokevirtual(
-                CD_Double,
-                "doubleValue",
-                MethodTypeDesc.of(CD_double),
-            )
-            dstore(targetSlot)
-        }
-        Int::class -> {
-            // needs unboxing from Integer to int
-            invokevirtual(
-                CD_Integer,
-                "intValue",
-                MethodTypeDesc.of(CD_int),
-            )
-            istore(targetSlot)
-        }
-        Boolean::class -> {
-            invokevirtual(
-                CD_Boolean,
-                "booleanValue",
-                MethodTypeDesc.of(CD_boolean),
-            )
-            istore(targetSlot)
-        }
-        Byte::class -> {
-            invokevirtual(
-                CD_Byte,
-                "byteValue",
-                MethodTypeDesc.of(CD_byte),
-            )
-            istore(targetSlot)
-        }
-        Short::class -> {
-            invokevirtual(
-                CD_Short,
-                "shortValue",
-                MethodTypeDesc.of(CD_short),
-            )
-            istore(targetSlot)
-        }
-        Char::class -> {
-            invokevirtual(
-                CD_Character,
-                "charValue",
-                MethodTypeDesc.of(CD_char),
-            )
-        }
-        Float::class -> {
-            invokevirtual(
-                CD_Float,
-                "floatValue",
-                MethodTypeDesc.of(CD_float),
-            )
-        }
+        Long::class -> lstore(targetSlot)
+        Double::class -> dstore(targetSlot)
+        Int::class, Boolean::class, Byte::class, Short::class, Char::class -> istore(targetSlot)
+        Float::class -> fstore(targetSlot)
         else -> astore(targetSlot)
     }
 }

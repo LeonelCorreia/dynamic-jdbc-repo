@@ -60,7 +60,7 @@ fun buildProps(
                 checkNotNull(classifier)
 
                 val getProp =
-                    GetPropInfo(
+                    GetPropInfo.Reflect(
                         constParam,
                         getValue(classifier, columnName, auxRepos),
                         columnName,
@@ -81,6 +81,24 @@ fun buildProps(
     }
 
 fun addAuxRepos(
+    domainKlass: KClass<*>,
+    connection: Connection,
+    auxRepos: MutableMap<KClass<*>, BaseRepository<Any, Any>>,
+) {
+    domainKlass
+        .declaredMemberProperties
+        .forEach { prop ->
+            val classifier =
+                (prop.returnType.classifier as? KClass<Any>)
+                    ?: throw IllegalStateException("Invalid classifier for property: ${prop.name}")
+
+            if (!classifier.isPrimitiveOrStringOrDate() && !classifier.isEnum()) {
+                auxRepos[classifier] = RepositoryReflect(connection, classifier)
+            }
+        }
+}
+
+fun addDynAuxRepos(
     domainKlass: KClass<*>,
     connection: Connection,
     auxRepos: MutableMap<KClass<*>, BaseRepository<Any, Any>>,

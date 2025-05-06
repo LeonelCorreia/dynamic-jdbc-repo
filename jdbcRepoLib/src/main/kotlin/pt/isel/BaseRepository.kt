@@ -1,23 +1,41 @@
 package pt.isel
 
+import java.lang.classfile.CodeBuilder
 import java.sql.Connection
+import java.sql.PreparedStatement
 import java.sql.ResultSet
-import kotlin.reflect.KClass
-import kotlin.reflect.KFunction
+import kotlin.reflect.KParameter
 import kotlin.reflect.KProperty
+
+data class SetPropInfo(
+    val name: String,
+    val param: KParameter,
+    val setFun: PreparedStatement.(Any) -> Unit,
+)
+
+sealed class GetPropInfo {
+    abstract val kParam: KParameter
+    abstract val columnName: String
+
+    data class Reflect(
+        override val kParam: KParameter,
+        val getter: ResultSet.() -> Any,
+        override val columnName: String,
+    ) : GetPropInfo()
+
+    data class Dynamic(
+        override val kParam: KParameter,
+        val getter: CodeBuilder.() -> Unit,
+        override val columnName: String,
+    ) : GetPropInfo()
+}
 
 abstract class BaseRepository<K : Any, T : Any>(
     protected val connection: Connection,
 ) : Repository<K, T> {
-    abstract val classifiers: Map<KProperty<*>, KClass<*>>
-
     abstract val pk: KProperty<*>
 
     abstract val tableName: String
-
-    abstract val constructor: KFunction<T>
-
-    abstract val props: Map<GetPropInfo, SetPropInfo?>
 
     override fun getById(id: K): T? {
         val query = "SELECT * FROM $tableName WHERE ${pk.name} = ?"
@@ -50,35 +68,5 @@ abstract class BaseRepository<K : Any, T : Any>(
         }
     }
 
-    override fun update(entity: T) {
-        val updates =
-            props
-                .values
-                .filterNotNull()
-                .map { it.name }
-                .joinToString { "$it = ?" }
-        val query = "UPDATE $tableName SET $updates WHERE ${pk.name} = ?"
-
-        connection.prepareStatement(query).use { preparedStatement ->
-            props.values
-                .filterNotNull()
-                .forEach { (_, _, setter) ->
-                    preparedStatement.setter(entity)
-                }
-
-            val pkValue = pk.call(entity)
-            preparedStatement.setObject(props.size, pkValue)
-            preparedStatement.executeUpdate()
-        }
-    }
-
     abstract fun mapRowToEntity(rs: ResultSet): T
-
-    /**
-     * Helper function to retrieve the getter by a given parameter name
-     *
-     * @param columnName Name of the parameter to retrieve the getter of
-     * @return The respective getter
-     */
-    fun findGetterByParamName(columnName: String): ResultSet.() -> Any = props.keys.first { prop -> prop.columnName == columnName }.getter
 }

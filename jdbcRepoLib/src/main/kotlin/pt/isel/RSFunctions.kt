@@ -9,14 +9,15 @@ import kotlin.reflect.KClass
 fun ResultSet.getPrimitiveStringDateValue(
     classifier: KClass<*>,
     columnName: String,
-) = when (classifier) {
-    Boolean::class -> getBoolean(columnName)
-    Int::class -> getInt(columnName)
-    Long::class -> getLong(columnName)
-    String::class -> getString(columnName)
-    Date::class -> getDate(columnName)
-    else -> throw Exception("Unsupported type $classifier")
-}
+): Any =
+    when (classifier) {
+        Boolean::class -> getBoolean(columnName)
+        Int::class -> getInt(columnName)
+        Long::class -> getLong(columnName)
+        String::class -> getString(columnName)
+        Date::class -> getDate(columnName)
+        else -> throw Exception("Unsupported type $classifier")
+    }
 
 fun ResultSet.getEnumValue(
     classifier: KClass<*>,
@@ -32,6 +33,7 @@ fun ResultSet.getValueFromAuxRepo(
     auxRepos: MutableMap<KClass<*>, BaseRepository<Any, Any>>,
 ): Any {
     val auxRepo = auxRepos[classifier] ?: throw Exception("No repository found for $classifier")
+    auxRepo as RepositoryReflect
     val foreignKeyType = auxRepo.classifiers[auxRepo.pk] ?: throw IllegalStateException("Missing pk in ${auxRepo.tableName}")
     val pkValue = this.getPrimitiveStringDateValue(foreignKeyType, columnName)
     return auxRepo.getById(pkValue)!!
@@ -68,6 +70,7 @@ fun PreparedStatement.setValueFromAuxRepo(
     auxRepos: MutableMap<KClass<*>, BaseRepository<Any, Any>>,
 ) {
     val auxRepo = auxRepos[classifier] ?: throw Exception("No repository found for $classifier")
+    auxRepo as RepositoryReflect<Any, Any>
     val fk = auxRepo.pk
 
     val fkValue = fk.call(value)
