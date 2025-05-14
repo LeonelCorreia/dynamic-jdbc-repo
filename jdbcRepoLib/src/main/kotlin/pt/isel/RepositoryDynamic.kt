@@ -173,6 +173,24 @@ fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryByteArray(
                     }
                 }
 
+                clb.withMethod(
+                    "update",
+                    MethodTypeDesc.of(
+                        CD_void,
+                        CD_Object,
+                    ),
+                    ACC_PUBLIC,
+                ) { mb ->
+                    mb.withCode { cb ->
+                        val constructor = buildConstructor(domainKlass)
+                        val params = constructor.parameters.drop(1)
+                        cb.updateMethod(
+                            domainKlass,
+                            params,
+                        )
+                    }
+                }
+
                 // if suitable insert method is found, implements it
                 insertMethod?.also { kFun ->
                     // Drop the first parameter (the receiver)
@@ -307,6 +325,29 @@ fun KType.descriptor(): ClassDesc {
 }
 
 /**
+ * Function that generates bytecode for the update method
+ */
+private fun CodeBuilder.updateMethod(
+    domainKlass: KClass<*>,
+    params: List<KParameter>,
+) {
+    val tableName = domainKlass.getTableName()
+    val pkName = domainKlass.getPkProp().name
+    val columnName = domainKlass.getColumnNames()
+    val paramsInfo = params.toParamInfo(domainKlass)
+    val sql = buildUpdateQuery(tableName, pkName, columnName)
+
+    val objectSlot = 1
+    val prepStmtSlot = 2
+
+    prepareStatement(sql, domainKlass, prepStmtSlot)
+    val paramCount = setPreparedStatementParamsFromObject(domainKlass, prepStmtSlot, objectSlot, paramsInfo)
+    setPrimaryKeyParameter(domainKlass, prepStmtSlot, objectSlot, paramCount)
+
+    executeUpdate(prepStmtSlot)
+}
+
+/**
  * Function that generates bytecode for the insert method noted with @Insert
  * and the necessary parameters.
  */
@@ -414,6 +455,13 @@ private fun CodeBuilder.executeUpdateAndReturn(
     labelBinding(labelNoAffected)
     createSqlException("No rows affected, when inserting into $tableName")
     athrow()
+}
+
+private fun CodeBuilder.executeUpdate(stmtSlot: Int) {
+    aload(stmtSlot)
+    invokeinterface(ClassDesc.of("java.sql.PreparedStatement"), "executeUpdate", MethodTypeDesc.of(Int::class.descriptor()))
+
+    return_()
 }
 
 private fun CodeBuilder.handleGeneratedKeyInsert(

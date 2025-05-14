@@ -7,6 +7,7 @@ import org.openjdk.jmh.annotations.OutputTimeUnit
 import org.openjdk.jmh.annotations.Scope
 import org.openjdk.jmh.annotations.State
 import pt.isel.chat.Channel
+import pt.isel.chat.dao.ChannelRepository
 import pt.isel.chat.dao.ChannelRepositoryJdbc
 import java.util.concurrent.TimeUnit
 
@@ -18,7 +19,7 @@ open class RepositoryBench {
 
     private val repoReflect = RepositoryReflect<String, Channel>(FakeConnection(), Channel::class)
 
-    private val repoDynamic = loadDynamicRepo<String, Channel>(FakeConnection(), Channel::class.java)
+    private val repoDynamic = loadDynamicRepo<String, Channel, ChannelRepository>(FakeConnection(), Channel::class.java)
 
     @Benchmark
     fun benchRepositoryJdbcGetAllChannels(): List<Channel> = repoJdbc.getAll()
