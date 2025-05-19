@@ -1,5 +1,6 @@
 package pt.isel.chat.dao
 
+import pt.isel.Queryable
 import pt.isel.chat.Channel
 import pt.isel.chat.ChannelType
 import java.sql.Connection
@@ -91,6 +92,10 @@ class ChannelRepositoryJdbc(
             stmt.setString(1, id)
             stmt.executeUpdate()
         }
+    }
+
+    override fun findAll(): Queryable<Channel> {
+        TODO("Not yet implemented")
     }
 
     private fun mapRowToChannel(rs: ResultSet): Channel =

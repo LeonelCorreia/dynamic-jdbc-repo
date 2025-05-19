@@ -1,5 +1,6 @@
 package pt.isel.sports.dao
 
+import pt.isel.Queryable
 import pt.isel.sports.Location
 import pt.isel.sports.Sport
 import pt.isel.sports.SportType
@@ -72,6 +73,10 @@ class SportRepositoryJdbc(
             it.setString(1, id)
             it.executeUpdate()
         }
+    }
+
+    override fun findAll(): Queryable<Sport> {
+        TODO("Not yet implemented")
     }
 
     private fun mapRowToSport(rs: ResultSet): Sport =

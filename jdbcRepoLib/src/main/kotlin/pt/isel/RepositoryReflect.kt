@@ -27,8 +27,10 @@ class RepositoryReflect<K : Any, T : Any>(
 
     private val constructor: KFunction<T> = buildConstructor(domainKlass)
 
+    override val properties = buildPropList(constructor, classifiers, tableName)
+
     private val props: Map<GetPropInfo, SetPropInfo?> =
-        buildProps(
+        buildPropsMap(
             constructor,
             classifiers,
             pk,

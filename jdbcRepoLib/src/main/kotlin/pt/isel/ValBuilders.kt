@@ -38,7 +38,7 @@ fun <T : Any> buildConstructor(domainKlass: KClass<T>): KFunction<T> =
         .primaryConstructor
         ?: throw IllegalStateException("No suitable constructor found for $domainKlass")
 
-fun buildProps(
+fun buildPropsMap(
     constructor: KFunction<*>,
     classifiers: MutableMap<KProperty<*>, KClass<*>>,
     pk: KProperty<*>,
@@ -115,3 +115,22 @@ fun addDynAuxRepos(
             }
         }
 }
+
+fun buildPropList(
+    constructor: KFunction<*>,
+    classifiers: MutableMap<KProperty<*>, KClass<*>>,
+    tableName: String,
+): Map<KProperty<*>, String> =
+    constructor.parameters.let {
+        it
+            .associate { constParam ->
+                val columnName =
+                    constParam.findAnnotations(Column::class).firstOrNull()?.name
+                        ?: constParam.name
+                        ?: throw IllegalStateException("Missing name for column in table $tableName.")
+                val prop = classifiers.keys.firstOrNull { prop -> prop.name == constParam.name }
+                checkNotNull(prop)
+
+                prop to columnName
+            }
+    }
