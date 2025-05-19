@@ -33,6 +33,8 @@ sealed class GetPropInfo {
 abstract class BaseRepository<K : Any, T : Any>(
     protected val connection: Connection,
 ) : Repository<K, T> {
+    abstract val properties: List<String>
+
     abstract val pk: KProperty<*>
 
     abstract val tableName: String
@@ -66,6 +68,11 @@ abstract class BaseRepository<K : Any, T : Any>(
             preparedStatement.setObject(1, id)
             preparedStatement.executeUpdate()
         }
+    }
+
+    override fun findAll(): Queryable<T> {
+        val sql = "SELECT ... FROM ..."
+        return QueryableBuilder(connection, sql, properties, ::mapRowToEntity)
     }
 
     abstract fun mapRowToEntity(rs: ResultSet): T

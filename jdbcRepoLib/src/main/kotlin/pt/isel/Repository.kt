@@ -13,4 +13,6 @@ interface Repository<K, T> {
     fun update(entity: T) // Update an existing entity
 
     fun deleteById(id: K) // Delete an entity by its ID
+
+    fun findAll(): Queryable<T>
 }
