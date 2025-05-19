@@ -310,8 +310,101 @@ by the derived class.
 
 ## Assignment 3
 
-Add support for Lazy queries.
+In this assignment, you should update the repository implementation to support
+building and executing **lazy SQL queries** through the new `findAll()` method
+of the `Repository` interface:
 
-`findAll().whereEquals(<col>, <value>).sortedBy(<col>).distinctBy(<col>)`
+```kotlin
+interface Repository<K, T> {
+    ...
 
-(... in progress...)
+    fun findAll(): Queryable<T>
+}
+```
+
+To achieve this, allow query clauses to be added incrementally, producing **new
+query objects** based on existing ones. The actual SQL execution should only
+happen when the result is iterated.
+
+In the following example, note two important aspects:
+
+* You can add additional clauses to an existing query, which **produces a new
+  query**.
+* The SQL statement is **only executed when you start iterating** over the result
+  (e.g., using `forEach`). At that moment, the query will reflect any changes
+  made to the database in the meantime, such as newly inserted entries.
+
+
+```kotlin
+val repository: Repository<String, Channel> = ...
+val channelsPublicAndReadOnly =
+      repository
+         .findAll()
+         .whereEquals(Channel::type, ChannelType.PUBLIC)
+         .whereEquals(Channel::isReadOnly, true)
+         .iterator()
+
+// Insert a new public and read-only channel before iterating over the result
+ChannelRepositoryJdbc(connection).insert(
+   Channel("Surf", ChannelType.PUBLIC, System.currentTimeMillis(), false, 400, 50, true, 0L),
+)
+
+// The newly inserted channel will appear during iteration, even though the query was defined earlier
+assertEquals("Support", channelsPublicAndReadOnly.next().name)
+assertEquals("Surf", channelsPublicAndReadOnly.next().name)
+assertFalse { channelsPublicAndReadOnly.hasNext() }
+```
+
+This new behavior is defined by the `Queryable` interface shown in the following
+listing.  
+**Note** that `whereEquals` and `orderBy` can be chained in any order to
+build a new query.  
+Also note that `Queryable` implements the `Sequence` interface.
+["_Unlike collections, sequences don't contain elements, they produce them while
+iterating._"](https://kotlinlang.org/docs/sequences.html)
+
+```kotlin
+interface Queryable<T> : Sequence<T> {
+    fun <V> whereEquals(prop: KProperty1<T, V>, value: V): Queryable<T>
+
+    fun <V> orderBy(prop: KProperty1<T, V>): Queryable<T>
+}
+```
+
+The `findAll()` implementation should be provided in `RepositoryReflect`, making
+it available to any subclass and ensuring consistent behavior in dynamically
+generated repositories as well.
+
+The method should be implemented following the approach below, where all
+query-building logic is encapsulated in an auxiliary class named
+`QueryableBuilder`, which you must implement as part of this assignment.
+The `QueryableBuilder` can implement the *iterator protocol* either by
+explicitly implementing the `Iterator` interface or by using the `sequence`
+generator function.
+You can **optionally** implement **both** approaches.
+
+Note that `RepositoryReflect` should provide to the `QueryableBuilder` any
+information necessary to support this functionality, such as metadata or helper
+functions.
+In the following example, `properties` contains all the necessary information
+about the properties of the given entity `T`.
+
+```kotlin
+open class RepositoryReflect<K : Any, T : Any>(
+    protected val connection: Connection,
+    private val domainKlass: KClass<T>,
+) : Repository<K, T> {
+    ...
+    override fun findAll(): Queryable<T> {
+        val sql = "SELECT ... FROM ..."
+        return QueryableBuilder(connection, sql, properties, ::mapRowToEntity)
+    }
+}
+```
+
+**You must also implement unit tests to verify the correct behavior of
+`whereEquals` and `orderBy`, including their lazy evaluation semantics.**
+
+You should ensure that closeable resources, such as `PreparedStatement` and
+`ResultSet`, are automatically closed when iteration over the returned result
+reaches the end.
