@@ -71,7 +71,7 @@ abstract class BaseRepository<K : Any, T : Any>(
     }
 
     override fun findAll(): Queryable<T> {
-        val sql = "SELECT * FROM ..."
+        val sql = "SELECT * FROM $tableName ..."
         return QueryableBuilder(connection, sql, properties, ::mapRowToEntity)
     }
 

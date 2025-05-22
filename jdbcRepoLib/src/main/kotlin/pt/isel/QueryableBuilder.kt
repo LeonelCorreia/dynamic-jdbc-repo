@@ -12,6 +12,7 @@ data class SeqProps(
     val value: Any?,
     val classifier: KClass<*>,
 )
+
 enum class Operation {
     WHERE,
     ORDER,
@@ -21,11 +22,14 @@ class QueryableBuilder<T>(
     private val connection: Connection,
     private val sqlQuery: String,
     private val properties: Map<KProperty<*>, String>,
-    private val mapper: (rs: ResultSet) -> T
-) : Queryable<T>{
+    private val mapper: (rs: ResultSet) -> T,
+) : Queryable<T> {
     val usedProps = mutableListOf<SeqProps>()
 
-    override fun <V> whereEquals(prop: KProperty1<T, V>, value: V): Queryable<T> {
+    override fun <V> whereEquals(
+        prop: KProperty1<T, V>,
+        value: V,
+    ): Queryable<T> {
         TODO()
     }
 
@@ -33,15 +37,14 @@ class QueryableBuilder<T>(
         TODO("Not yet implemented")
     }
 
-
     override fun iterator(): Iterator<T> =
         sequence {
             connection.prepareStatement(queryBuilder(sqlQuery)).use { stmt ->
-                usedProps.forEachIndexed {  index, (_, _, value, classifier) ->
+                usedProps.forEachIndexed { index, (_, _, value, classifier) ->
                     stmt.seqSetter(value, index, classifier)
                 }
 
-                stmt.executeQuery().use{ rs ->
+                stmt.executeQuery().use { rs ->
                     while (rs.next()) {
                         yield(mapper(rs))
                     }
@@ -50,6 +53,42 @@ class QueryableBuilder<T>(
         }.iterator()
 
     private fun queryBuilder(sql: String): String {
-        TODO()
+        val whereClauses = usedProps.filter { it.oper == Operation.WHERE }
+        val orderByClauses = usedProps.filter { it.oper == Operation.ORDER }
+        val whereAndOrderClauses = StringBuilder()
+        val orderedProps = mutableListOf<SeqProps>()
+
+        if (whereClauses.isNotEmpty()) {
+            whereAndOrderClauses.append(" WHERE ")
+            whereClauses.forEachIndexed { index, (_, columnName, value, _) ->
+                if (index > 0) whereAndOrderClauses.append(" AND ")
+                val formattedValue =
+                    when (value) {
+                        null -> "IS NULL"
+                        is String -> "'$value'"
+                        else -> value.toString()
+                    }
+                if (value == null) {
+                    whereAndOrderClauses.append("$columnName $formattedValue")
+                } else {
+                    whereAndOrderClauses.append("$columnName = $formattedValue")
+                }
+                orderedProps.add(whereClauses[index])
+            }
+        }
+
+        if (orderByClauses.isNotEmpty()) {
+            whereAndOrderClauses.append(" ORDER BY ")
+            orderByClauses.forEachIndexed { index, (_, columnName, _, _) ->
+                if (index > 0) whereAndOrderClauses.append(", ")
+                whereAndOrderClauses.append(columnName)
+                orderedProps.add(orderByClauses[index])
+            }
+        }
+
+        usedProps.clear()
+        usedProps.addAll(orderedProps)
+
+        return sql.replace("...", "$whereAndOrderClauses")
     }
 }
