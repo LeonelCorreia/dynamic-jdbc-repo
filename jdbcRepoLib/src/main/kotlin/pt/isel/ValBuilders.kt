@@ -101,19 +101,26 @@ fun addAuxRepos(
 fun addDynAuxRepos(
     domainKlass: KClass<*>,
     connection: Connection,
-    auxRepos: MutableMap<KClass<*>, BaseRepository<Any, Any>>,
-) {
+    loadedRepos: MutableMap<KClass<*>, BaseRepository<Any, Any>>,
+): Map<KClass<*>, BaseRepository<Any, Any>> {
+    val auxRepos =
+        mutableMapOf<KClass<*>, BaseRepository<Any, Any>>()
+
     domainKlass
         .declaredMemberProperties
         .forEach { prop ->
             val classifier =
                 (prop.returnType.classifier as? KClass<Any>)
                     ?: throw IllegalStateException("Invalid classifier for property: ${prop.name}")
-
             if (!classifier.isPrimitiveOrStringOrDate() && !classifier.isEnum()) {
-                auxRepos[classifier] = loadDynamicRepo(connection, classifier)
+                if (loadedRepos[classifier] != null) {
+                    auxRepos[classifier] = loadedRepos[classifier]!!
+                } else {
+                    auxRepos[classifier] = loadDynamicRepo(connection, classifier)
+                }
             }
         }
+    return auxRepos
 }
 
 fun buildPropList(

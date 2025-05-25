@@ -69,12 +69,14 @@ fun <K : Any, T : Any, R : Repository<K, T>> loadDynamicRepo(
     val className = "RepositoryDyn${domainKlass.simpleName}"
     val generatedClassDesc = ClassDesc.of("$PACKAGE_NAME.$className")
     // calculate the parameters values
-    addDynAuxRepos(domainKlass, connection, repositories)
+    val auxRepos = addDynAuxRepos(domainKlass, connection, repositories)
     val classifiers = buildClassifiers(domainKlass)
     val pk: KProperty<*> = buildPk(domainKlass)
     val tableName = buildTableName(domainKlass)
     val getProps = buildDynamicGetPropInfo(domainKlass, generatedClassDesc, classifiers, tableName, repositories)
-    val params = listOf(connection, pk, tableName) + repositories.values
+    println("Building repository for $domainKlass")
+    println("With Aux Repositories: ${auxRepos.values} ")
+    val params = listOf(connection, pk, tableName) + auxRepos.values
 
     return repositories.getOrPut(domainKlass) {
         buildRepositoryClassfile(
@@ -83,6 +85,7 @@ fun <K : Any, T : Any, R : Repository<K, T>> loadDynamicRepo(
             getProps,
             className,
             generatedClassDesc,
+            auxRepos,
         ).constructors
             .first()
             .call(*params.toTypedArray()) as BaseRepository<Any, Any>
@@ -99,9 +102,17 @@ private fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryClassfile(
     props: List<GetPropInfo>,
     className: String,
     generatedClassDesc: ClassDesc,
+    auxRepos: Map<KClass<*>, BaseRepository<Any, Any>>,
 ): KClass<out Any> {
     val fullClassName = "$PACKAGE_NAME.$className"
-    buildRepositoryByteArray(domainKlass, repositoryInterface, props, fullClassName, generatedClassDesc)
+    buildRepositoryByteArray(
+        domainKlass,
+        repositoryInterface,
+        props,
+        fullClassName,
+        generatedClassDesc,
+        auxRepos,
+    )
     return rootLoader
         .loadClass("$PACKAGE_NAME.$className")
         .kotlin
@@ -118,6 +129,7 @@ fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryByteArray(
     props: List<GetPropInfo>,
     fullClassName: String,
     generatedClassDesc: ClassDesc,
+    auxRepos: Map<KClass<*>, BaseRepository<Any, Any>>,
 ) {
     val domainKlassDesc = domainKlass.descriptor()
 
@@ -132,9 +144,9 @@ fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryByteArray(
             .build(generatedClassDesc) { clb ->
                 // the class generated is a subclass of RepositoryReflect
                 clb.withSuperclass(SUPER_CLASS_DESC)
-                clb.declareFields()
-                clb.defineFieldGetters(generatedClassDesc)
-                val paramDescList = listOf(CONNECTION_DESC, KPROPERTY_DESC, CD_String) + List(repositories.size) { SUPER_CLASS_DESC }
+                clb.declareFields(auxRepos)
+                clb.defineFieldGetters(generatedClassDesc, auxRepos)
+                val paramDescList = listOf(CONNECTION_DESC, KPROPERTY_DESC, CD_String) + List(auxRepos.size) { SUPER_CLASS_DESC }
                 clb.withMethod(
                     INIT_NAME,
                     MethodTypeDesc.of(
@@ -144,7 +156,7 @@ fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryByteArray(
                     ACC_PUBLIC,
                 ) { mb ->
                     mb.withCode { cb ->
-                        cb.withInit(generatedClassDesc, SUPER_CLASS_DESC, CONNECTION_DESC)
+                        cb.withInit(generatedClassDesc, SUPER_CLASS_DESC, CONNECTION_DESC, auxRepos)
                     }
                 }
 
@@ -217,7 +229,7 @@ fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryByteArray(
         .writeBytes(bytes)
 }
 
-private fun ClassBuilder.declareFields() {
+private fun ClassBuilder.declareFields(auxRepos: Map<KClass<*>, BaseRepository<Any, Any>>) {
     withField(
         "pk",
         KPROPERTY_DESC,
@@ -229,7 +241,7 @@ private fun ClassBuilder.declareFields() {
         ACC_PUBLIC,
     )
 
-    repositories.values.forEach { repo ->
+    auxRepos.values.forEach { repo ->
         withField(
             repo::class.simpleName,
             SUPER_CLASS_DESC,
@@ -238,7 +250,10 @@ private fun ClassBuilder.declareFields() {
     }
 }
 
-private fun ClassBuilder.defineFieldGetters(generatedClassDesc: ClassDesc) {
+private fun ClassBuilder.defineFieldGetters(
+    generatedClassDesc: ClassDesc,
+    repositories: Map<KClass<*>, BaseRepository<Any, Any>>,
+) {
     withMethod(
         "getPk",
         MethodTypeDesc.of(KPROPERTY_DESC),
@@ -526,6 +541,7 @@ private fun CodeBuilder.withInit(
     generatedClassDesc: ClassDesc,
     superClassDesc: ClassDesc,
     connectionDesc: ClassDesc,
+    repositories: Map<KClass<*>, BaseRepository<Any, Any>>,
 ) {
     val connectionSlot = 1
 
@@ -540,11 +556,14 @@ private fun CodeBuilder.withInit(
         ),
     )
     // load the values into the val's
-    loadVals(generatedClassDesc)
+    loadVals(generatedClassDesc, repositories)
     return_()
 }
 
-private fun CodeBuilder.loadVals(generatedClassDesc: ClassDesc) {
+private fun CodeBuilder.loadVals(
+    generatedClassDesc: ClassDesc,
+    repositories: Map<KClass<*>, BaseRepository<Any, Any>>,
+) {
     val pkSlot = 2
     val tableNameSlot = 3
     val reposStartSlot = 4
