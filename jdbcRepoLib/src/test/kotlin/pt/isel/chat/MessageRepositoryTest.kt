@@ -15,6 +15,7 @@ import java.sql.DriverManager
 import java.sql.Statement.RETURN_GENERATED_KEYS
 import java.time.LocalDate
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNotSame
 
@@ -134,5 +135,39 @@ class MessageRepositoryTest {
         assertNotNull(msg)
         assertEquals("With dynamic implementation of the jdbc repo we can support insert operations.", msg.content)
         dynMsgRepo.deleteById(msg.id)
+    }
+
+    @Test
+    fun `find all should have a lazy implementation`() {
+        val charlie = dynUserRepo.getById(3)
+        assertNotNull(charlie)
+        val development = dynChannelRepo.getById("Development")
+        assertNotNull(development)
+
+        val allMessagesFromDevelopmentSentByCharlie =
+            dynMsgRepo
+                .findAll()
+                .whereEquals(Message::channel, development)
+                .orderBy(Message::timestamp)
+                .whereEquals(Message::user, charlie)
+                .iterator()
+
+        val newMessage =
+            dynMsgRepo.insert(
+                "The lazy implementation its done, now we can test it.",
+                LocalDate.now().toEpochDay(),
+                development,
+                charlie,
+            )
+
+        assertEquals(
+            "Need help with debugging",
+            allMessagesFromDevelopmentSentByCharlie.next().content,
+        )
+        assertEquals(
+            newMessage.content,
+            allMessagesFromDevelopmentSentByCharlie.next().content,
+        )
+        assertFalse { allMessagesFromDevelopmentSentByCharlie.hasNext() }
     }
 }

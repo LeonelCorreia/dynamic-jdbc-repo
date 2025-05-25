@@ -95,4 +95,29 @@ class ChannelRepositoryTest {
         assertEquals(newChannel, retrieved)
         dynChannelRepo.deleteById("NewChannel")
     }
+
+    @Test
+    fun `find all should have a lazy implementation`() {
+        val channelsPublicAndReadOnly =
+            dynChannelRepo
+                .findAll()
+                .whereEquals(Channel::type, ChannelType.PUBLIC)
+                .whereEquals(Channel::isReadOnly, true)
+                .iterator()
+
+        dynChannelRepo.insert(
+            "Surf",
+            ChannelType.PUBLIC,
+            System.currentTimeMillis(),
+            false,
+            400,
+            50,
+            true,
+            0L,
+        )
+
+        assertEquals("Support", channelsPublicAndReadOnly.next().name)
+        assertEquals("Surf", channelsPublicAndReadOnly.next().name)
+        assertFalse { channelsPublicAndReadOnly.hasNext() }
+    }
 }

@@ -13,6 +13,7 @@ import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.Statement.RETURN_GENERATED_KEYS
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 
 class TeamsRepositoryTests {
@@ -152,5 +153,43 @@ class TeamsRepositoryTests {
         assertEquals(insertedTeam.teamSport, sport)
         assertEquals(insertedTeam.teamClub, club)
         dynTeamRepo.deleteById(insertedTeam.id)
+    }
+
+    @Test
+    fun ` find all teams that play tennis`() {
+        val tennis = dynSportRepo.getById("Tennis")
+        assertNotNull(tennis)
+        val tennisTeams =
+            dynTeamRepo
+                .findAll()
+                .whereEquals(Team::teamSport, tennis)
+                .orderBy(Team::id)
+                .iterator()
+
+        val benfica = dynClubRepo.getById(2)
+        assertNotNull(benfica)
+        dynTeamRepo.insert(
+            "Tennis Benfica B",
+            benfica,
+            tennis,
+        )
+
+        assertEquals(
+            "Sporting Tennis",
+            tennisTeams.next().name,
+        )
+        assertEquals(
+            "Benfica Tennis",
+            tennisTeams.next().name,
+        )
+        assertEquals(
+            "Porto Tennis",
+            tennisTeams.next().name,
+        )
+        assertEquals(
+            "Tennis Benfica B",
+            tennisTeams.next().name,
+        )
+        assertFalse { tennisTeams.hasNext() }
     }
 }
