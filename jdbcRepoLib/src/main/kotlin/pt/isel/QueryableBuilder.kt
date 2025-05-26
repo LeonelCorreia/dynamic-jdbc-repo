@@ -64,7 +64,7 @@ class QueryableBuilder<T>(
             var nextResult = false
 
             override fun hasNext(): Boolean {
-                if(rs == null) rs = stmt.executeQuery()
+                if (rs == null) rs = stmt.executeQuery()
                 if (!nextResult) {
                     nextResult = rs!!.next()
                     if (!nextResult) {
@@ -77,7 +77,7 @@ class QueryableBuilder<T>(
             }
 
             override fun next(): T {
-                if(rs == null) rs = stmt.executeQuery()
+                if (rs == null) rs = stmt.executeQuery()
                 if (!hasNext()) throw NoSuchElementException()
                 val result = mapper(rs!!)
                 nextResult = false
