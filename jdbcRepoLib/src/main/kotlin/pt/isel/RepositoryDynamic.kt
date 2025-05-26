@@ -440,34 +440,11 @@ private fun CodeBuilder.setPreparedStatementParams(
     insertParams: List<ParamInfo>,
 ) {
     insertParams.forEachIndexed { index, param ->
-        aload(stmtSlot)
-        bipush(index + 1)
+        loadPreparedStatement(stmtSlot, index)
         loadParameter(param.slot, param.cls)
+        handleSpecialTypes(param)
 
-        if (param.isRelation()) {
-            invokevirtual(
-                param.cls.descriptor(),
-                "get${param.cls.getPkProp().name.replaceFirstChar { it.uppercase() }}",
-                MethodTypeDesc.of(
-                    param.cls
-                        .getPkProp()
-                        .returnType
-                        .descriptor(),
-                ),
-            )
-        }
-
-        if (param.cls.isEnum()) {
-            invokevirtual(
-                param.cls.descriptor(),
-                "name",
-                MethodTypeDesc.of(String::class.descriptor()),
-            )
-            sipush(1111)
-        }
-
-        val stmtParam = if (param.isRelation()) param.convertParamInfoToPkInfo() else param
-        setValue(stmtParam)
+        setValue(if (param.isRelation()) param.convertParamInfoToPkInfo() else param)
     }
 }
 

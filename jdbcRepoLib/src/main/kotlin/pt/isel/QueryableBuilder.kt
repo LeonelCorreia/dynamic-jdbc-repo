@@ -63,26 +63,50 @@ class QueryableBuilder<T>(
             val stmt = connection.prepareStatement(queryBuilder(sqlQuery))
             var rs: ResultSet? = null
             var nextResult = false
+            var finished = false
 
             override fun hasNext(): Boolean {
+                if (finished) return false
                 if (rs == null) rs = stmt.executeQuery()
                 if (!nextResult) {
-                    nextResult = rs!!.next()
-                    if (!nextResult) {
-                        rs!!.close()
-                        stmt.close()
+                    try {
+                        nextResult = rs!!.next()
+                        if (!nextResult) {
+                            closeResources()
+                        }
+                    } catch (e: Exception) {
+                        closeResources()
+                        throw e
                     }
                 }
-                println(nextResult)
                 return nextResult
             }
 
             override fun next(): T {
                 if (rs == null) rs = stmt.executeQuery()
                 if (!hasNext()) throw NoSuchElementException()
-                val result = mapper(rs!!)
-                nextResult = false
-                return result
+                return try {
+                    val result = mapper(rs!!)
+                    nextResult = false
+                    result
+                } catch (e: Exception) {
+                    closeResources()
+                    throw e
+                }
+            }
+
+            private fun closeResources() {
+                if (!finished) {
+                    try {
+                        rs!!.close()
+                    } catch (_: Exception) {
+                    }
+                    try {
+                        stmt.close()
+                    } catch (_: Exception) {
+                    }
+                    finished = true
+                }
             }
         }
 
