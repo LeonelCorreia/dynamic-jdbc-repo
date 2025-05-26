@@ -116,7 +116,9 @@ fun addDynAuxRepos(
                 if (loadedRepos[classifier] != null) {
                     auxRepos[classifier] = loadedRepos[classifier]!!
                 } else {
-                    auxRepos[classifier] = loadDynamicRepo(connection, classifier)
+                    val newRepo: BaseRepository<Any, Any> = loadDynamicRepo(connection, classifier)
+                    loadedRepos[classifier] = newRepo
+                    auxRepos[classifier] = newRepo
                 }
             }
         }

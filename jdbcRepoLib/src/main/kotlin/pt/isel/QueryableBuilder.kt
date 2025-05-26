@@ -50,8 +50,7 @@ class QueryableBuilder<T>(
 
 /*    override fun iterator(): Iterator<T> =
         sequence {
-            val query = queryBuilder(sqlQuery)
-            connection.prepareStatement(query).executeQuery().use { rs ->
+            connection.prepareStatement(queryBuilder(sqlQuery)).executeQuery().use { rs ->
                 while (rs.next()) {
                     yield(mapper(rs))
                 }
@@ -60,28 +59,28 @@ class QueryableBuilder<T>(
 
     override fun iterator(): Iterator<T> =
         object : Iterator<T> {
-            val stmt =
-                connection.prepareStatement(queryBuilder(sqlQuery)).apply {
-                    setStatementParameters(usedProps, this)
-                }
-            val rs: ResultSet = stmt.executeQuery()
-            var nextResult: Boolean? = null
+            val stmt = connection.prepareStatement(queryBuilder(sqlQuery))
+            var rs: ResultSet? = null
+            var nextResult = false
 
             override fun hasNext(): Boolean {
-                if (nextResult == null) {
-                    nextResult = rs.next()
-                    if (nextResult == false) {
-                        rs.close()
+                if(rs == null) rs = stmt.executeQuery()
+                if (!nextResult) {
+                    nextResult = rs!!.next()
+                    if (!nextResult) {
+                        rs!!.close()
                         stmt.close()
                     }
                 }
-                return nextResult!!
+                println(nextResult)
+                return nextResult
             }
 
             override fun next(): T {
+                if(rs == null) rs = stmt.executeQuery()
                 if (!hasNext()) throw NoSuchElementException()
-                val result = mapper(rs)
-                nextResult = null
+                val result = mapper(rs!!)
+                nextResult = false
                 return result
             }
         }
@@ -121,9 +120,6 @@ class QueryableBuilder<T>(
                 orderedProps.add(orderByClauses[index])
             }
         }
-
-        usedProps.clear()
-        usedProps.addAll(orderedProps)
 
         return sql.replace("...", "$whereAndOrderClauses")
     }
