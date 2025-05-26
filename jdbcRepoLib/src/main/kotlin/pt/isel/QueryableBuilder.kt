@@ -37,7 +37,8 @@ class QueryableBuilder<T>(
     }
 
     override fun <V> orderBy(prop: KProperty1<T, V>): Queryable<T> {
-        val columnName = properties[prop] ?: throw IllegalArgumentException()
+        val columnName = properties[prop]
+        requireNotNull(columnName) { "No such property in the class." }
         usedProps.add(
             SeqProps(
                 Operation.ORDER,

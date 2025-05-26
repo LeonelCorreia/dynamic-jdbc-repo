@@ -71,7 +71,7 @@ fun CodeBuilder.setPreparedStatementParamsFromObject(
         }
 
         // If it's an enum, call name()
-        if (param.isEnum()) {
+        if (param.cls.isEnum()) {
             invokevirtual(
                 param.cls.descriptor(),
                 "name",

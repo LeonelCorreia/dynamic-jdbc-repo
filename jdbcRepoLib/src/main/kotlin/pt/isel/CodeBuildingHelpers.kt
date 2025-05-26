@@ -8,6 +8,7 @@ import java.lang.constant.ConstantDescs.*
 import java.lang.constant.MethodTypeDesc
 import java.sql.Date
 import kotlin.reflect.KClass
+import kotlin.reflect.KClassifier
 import kotlin.reflect.KProperty
 import kotlin.reflect.full.findAnnotations
 
@@ -249,5 +250,18 @@ fun CodeBuilder.box(type: KClass<*>) {
                 MethodTypeDesc.of(CD_Float, CD_float),
             )
         }
+    }
+}
+
+fun CodeBuilder.loadParameter(
+    slot: Int,
+    classifier: KClassifier,
+) {
+    when (classifier) {
+        Int::class, Boolean::class, Char::class, Byte::class, Short::class -> iload(slot)
+        Long::class -> lload(slot)
+        Double::class -> dload(slot)
+        Float::class -> fload(slot)
+        else -> aload(slot)
     }
 }

@@ -25,29 +25,13 @@ fun buildInsertQuery(
     return "INSERT INTO $tableName ($columnNames) VALUES ($placeholders)"
 }
 
-fun KClass<*>.getTableName(): String = findAnnotations(Table::class).firstOrNull()?.name ?: simpleName ?: error("Missing table name")
-
-fun KClass<*>.getPrimaryKeyType(): KType =
-    declaredMemberProperties.firstOrNull { it.findAnnotations(Pk::class).isNotEmpty() }?.returnType
-        ?: error("Missing @Pk for insert operation")
-
-fun ParamInfo.isEnum(): Boolean = cls.java.isEnum
-
 fun ParamInfo.isRelation(): Boolean = !cls.java.isPrimitive && !cls.java.isEnum && cls != String::class && cls != Date::class
 
 fun KClass<*>.primaryCtorArgs(): List<KParameter> = primaryConstructor?.parameters ?: error("Primary constructor not found for $this")
 
-fun columnsNames(
-    domainKcls: KClass<*>,
-    params: List<ParamInfo>,
-): List<String> =
+fun columnsNames(params: List<ParamInfo>): List<String> =
     params.map { paramInfo ->
-        paramInfo.ctorArg
-            .findAnnotations(Column::class)
-            .firstOrNull()
-            ?.name
-            ?: paramInfo.ctorArg.name
-            ?: error("No name found for parameter ${paramInfo.ctorArg.name} in $domainKcls")
+        paramInfo.ctorArg.columnName()
     }
 
 data class ParamInfo(
@@ -58,7 +42,7 @@ data class ParamInfo(
 
 fun KClass<*>.hasSerialPrimaryKey(): Boolean =
     declaredMemberProperties.any { prop ->
-        val hasPkAnnotation = prop.findAnnotations(Pk::class).isNotEmpty()
+        val hasPkAnnotation = prop.contains(Pk::class)
         val isIntOrLong = prop.returnType.classifier == Int::class || prop.returnType.classifier == Long::class
         hasPkAnnotation && isIntOrLong
     }
@@ -104,10 +88,6 @@ fun ParamInfo.convertParamInfoToPkInfo(): ParamInfo =
         slot = slot,
         cls = cls.getPkProp().returnType.classifier as KClass<*>,
     )
-
-fun KClass<*>.getPkProp(): KProperty<*> =
-    declaredMemberProperties.firstOrNull { it.findAnnotations(Pk::class).isNotEmpty() }
-        ?: error("No primary key found for class $this")
 
 fun CodeBuilder.setValue(parameter: ParamInfo) {
     val (methodName, methodDesc) =
@@ -210,19 +190,6 @@ fun List<KParameter>.firstSlotAvailableAfterParams(): Int {
     return lastSlotUsed + 1
 }
 
-fun CodeBuilder.loadParameter(
-    slot: Int,
-    classifier: KClassifier,
-) {
-    when (classifier) {
-        Int::class, Boolean::class, Char::class, Byte::class, Short::class -> iload(slot)
-        Long::class -> lload(slot)
-        Double::class -> dload(slot)
-        Float::class -> fload(slot)
-        else -> aload(slot)
-    }
-}
-
 fun KFunction<*>.isInsertMethodForKCls(kCls: KClass<*>) =
     parameters.matchConstructorParams(kCls) &&
         findAnnotations(Insert::class).isNotEmpty() &&
@@ -233,7 +200,7 @@ fun List<KParameter>.matchConstructorParams(kClass: KClass<*>): Boolean {
 
     val (pkPropName, pkPropType) =
         kClass.declaredMemberProperties
-            .firstOrNull { it.findAnnotations(Pk::class).isNotEmpty() }
+            .firstOrNull { it.contains(Pk::class) }
             ?.let { it.name to it.returnType }
             ?: (null to null)
     // Filter out optional parameters and the PK property if it is of type Int or Long

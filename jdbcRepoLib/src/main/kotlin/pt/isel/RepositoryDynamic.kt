@@ -1,4 +1,4 @@
-@file:Suppress("ktlint:standard:no-wildcard-imports")
+@file:Suppress("ktlint:standard:no-wildcard-imports", "UNCHECKED_CAST")
 
 package pt.isel
 
@@ -61,6 +61,7 @@ fun <K : Any, T : Any, R : Repository<K, T>> loadDynamicRepo(
  * If a repository already exists, it returns the existing one, otherwise
  * it generates a new one using the buildRepositoryClassfile, loads it and instantiates it.
  */
+
 fun <K : Any, T : Any, R : Repository<K, T>> loadDynamicRepo(
     connection: Connection,
     domainKlass: KClass<T>,
@@ -69,7 +70,7 @@ fun <K : Any, T : Any, R : Repository<K, T>> loadDynamicRepo(
     val className = "RepositoryDyn${domainKlass.simpleName}"
     val generatedClassDesc = ClassDesc.of("$PACKAGE_NAME.$className")
     // calculate the parameters values
-    val auxRepos = addDynAuxRepos(domainKlass, connection, repositories)
+    val auxRepos = getDynAuxRepos(domainKlass, connection, repositories)
     val classifiers = buildClassifiers(domainKlass)
     val pk: KProperty<*> = buildPk(domainKlass)
     val constructor = buildConstructor(domainKlass)
@@ -83,6 +84,7 @@ fun <K : Any, T : Any, R : Repository<K, T>> loadDynamicRepo(
         buildRepositoryClassfile(
             domainKlass,
             repositoryInterface,
+            constructor,
             getProps,
             className,
             generatedClassDesc,
@@ -100,6 +102,7 @@ fun <K : Any, T : Any, R : Repository<K, T>> loadDynamicRepo(
 private fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryClassfile(
     domainKlass: KClass<T>,
     repositoryInterface: KClass<R>?,
+    constructor: KFunction<T>,
     props: List<GetPropInfo>,
     className: String,
     generatedClassDesc: ClassDesc,
@@ -109,6 +112,7 @@ private fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryClassfile(
     buildRepositoryByteArray(
         domainKlass,
         repositoryInterface,
+        constructor,
         props,
         fullClassName,
         generatedClassDesc,
@@ -127,6 +131,7 @@ private fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryClassfile(
 fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryByteArray(
     domainKlass: KClass<T>,
     repositoryInterface: KClass<R>?,
+    constructor: KFunction<T>,
     props: List<GetPropInfo>,
     fullClassName: String,
     generatedClassDesc: ClassDesc,
@@ -182,7 +187,6 @@ fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryByteArray(
                     ACC_PUBLIC,
                 ) { mb ->
                     mb.withCode { cb ->
-                        val constructor = buildConstructor(domainKlass)
                         cb.withMapRowToEntity(domainKlassDesc, constructor, props)
                     }
                 }
@@ -196,7 +200,6 @@ fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryByteArray(
                     ACC_PUBLIC,
                 ) { mb ->
                     mb.withCode { cb ->
-                        val constructor = buildConstructor(domainKlass)
                         val params = constructor.parameters.drop(1)
                         cb.updateMethod(
                             domainKlass,
@@ -395,9 +398,9 @@ private fun CodeBuilder.insertMethod(
     params: List<KParameter>,
 ) {
     val tableName = domainKlass.getTableName()
-    val pkType = domainKlass.getPrimaryKeyType()
+    val pkType = domainKlass.getPkProp().returnType
     val paramInfos = params.toParamInfo(domainKlass)
-    val columnNames = columnsNames(domainKlass, paramInfos)
+    val columnNames = columnsNames(paramInfos)
     val sql = buildInsertQuery(tableName, columnNames)
 
     val prepStmtSlot = params.firstSlotAvailableAfterParams()
@@ -454,7 +457,7 @@ private fun CodeBuilder.setPreparedStatementParams(
             )
         }
 
-        if (param.isEnum()) {
+        if (param.cls.isEnum()) {
             invokevirtual(
                 param.cls.descriptor(),
                 "name",
@@ -703,13 +706,7 @@ fun CodeBuilder.storeValueInSlot(
 private fun CodeBuilder.loadConstructorArguments(paramSlots: List<ParamSlot>) {
     // push to the stack every parameter of the constructor obtained previously in order
     for ((slot, type) in paramSlots) {
-        when (type) {
-            Long::class -> lload(slot)
-            Double::class -> dload(slot)
-            Int::class, Boolean::class, Byte::class, Char::class, Short::class -> iload(slot)
-            Float::class -> fload(slot)
-            else -> aload(slot)
-        }
+        loadParameter(slot, type)
     }
 }
 

@@ -1,5 +1,4 @@
 package pt.isel
-
 import java.sql.Connection
 import kotlin.reflect.KClass
 import kotlin.reflect.KFunction
@@ -14,7 +13,7 @@ fun <T : Any> buildClassifiers(domainKlass: KClass<T>) =
             .declaredMemberProperties
             .forEach { prop ->
                 val classifier =
-                    (prop.returnType.classifier as? KClass<Any>)
+                    (prop.returnType.classifier as? KClass<*>)
                         ?: throw IllegalStateException("Invalid classifier for property: ${prop.name}")
 
                 this[prop] = classifier
@@ -80,6 +79,7 @@ fun buildPropsMap(
             }
     }
 
+@Suppress("UNCHECKED_CAST")
 fun addAuxRepos(
     domainKlass: KClass<*>,
     connection: Connection,
@@ -98,7 +98,8 @@ fun addAuxRepos(
         }
 }
 
-fun addDynAuxRepos(
+@Suppress("UNCHECKED_CAST")
+fun getDynAuxRepos(
     domainKlass: KClass<*>,
     connection: Connection,
     loadedRepos: MutableMap<KClass<*>, BaseRepository<Any, Any>>,

@@ -86,19 +86,18 @@ fun PreparedStatement.setValue(
     index: Int,
     classifier: KClass<*>,
     auxRepos: MutableMap<KClass<*>, BaseRepository<Any, Any>>,
-): Unit =
-    when {
-        classifier.isPrimitiveOrStringOrDate() -> {
-            setPrimitiveOrStringOrDate(value, index, classifier)
-        }
-        classifier.isEnum() -> {
-            val enumValue = value as Enum<*>
-            setObject(index, enumValue.name, Types.OTHER) // Types.OTHER is for PostgreSQL
-        }
-        else -> {
-            setValueFromAuxRepo(value, index, classifier, auxRepos)
-        }
+) = when {
+    classifier.isPrimitiveOrStringOrDate() -> {
+        setPrimitiveOrStringOrDate(value, index, classifier)
     }
+    classifier.isEnum() -> {
+        val enumValue = value as Enum<*>
+        setObject(index, enumValue.name, Types.OTHER) // Types.OTHER is for PostgreSQL
+    }
+    else -> {
+        setValueFromAuxRepo(value, index, classifier, auxRepos)
+    }
+}
 
 fun KClass<*>.isEnum() = java.isEnum
 
