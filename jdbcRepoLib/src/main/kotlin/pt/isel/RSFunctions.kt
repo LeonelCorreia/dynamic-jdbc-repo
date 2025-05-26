@@ -117,21 +117,3 @@ fun KClass<*>.isPrimitiveBoxed() =
         this == Short::class ||
         this == Byte::class ||
         this == Float::class
-
-fun PreparedStatement.seqSetter(
-    value: Any?,
-    index: Int,
-    classifier: KClass<*>,
-) = when {
-    classifier.isPrimitiveOrStringOrDate() -> {
-        setPrimitiveOrStringOrDate(value, index, classifier)
-    }
-
-    classifier.isEnum() -> {
-        val enumValue = value as Enum<*>
-        setObject(index, enumValue.name, Types.OTHER) // Types.OTHER is for PostgreSQL
-    }
-    else -> {
-        TODO()
-    }
-}

@@ -2,7 +2,6 @@ package pt.isel
 
 import java.sql.Connection
 import java.sql.ResultSet
-import kotlin.reflect.KClass
 import kotlin.reflect.KProperty
 import kotlin.reflect.KProperty1
 
@@ -10,7 +9,6 @@ data class SeqProps(
     val oper: Operation,
     val columnName: String,
     val value: Any?,
-    val classifier: KClass<*>,
 )
 
 enum class Operation {
@@ -30,24 +28,29 @@ class QueryableBuilder<T>(
         prop: KProperty1<T, V>,
         value: V,
     ): Queryable<T> {
-        TODO()
+        val colName = properties[prop]
+        requireNotNull(colName) { "No such property in the class." }
+
+        usedProps.add(SeqProps(Operation.WHERE, colName, value))
+
+        return this
     }
 
     override fun <V> orderBy(prop: KProperty1<T, V>): Queryable<T> {
-        TODO("Not yet implemented")
+        val colName = properties[prop]
+        requireNotNull(colName) { "No such property in the class." }
+
+        usedProps.add(SeqProps(Operation.ORDER, colName, null))
+
+        return this
     }
 
     override fun iterator(): Iterator<T> =
         sequence {
-            connection.prepareStatement(queryBuilder(sqlQuery)).use { stmt ->
-                usedProps.forEachIndexed { index, (_, _, value, classifier) ->
-                    stmt.seqSetter(value, index, classifier)
-                }
-
-                stmt.executeQuery().use { rs ->
-                    while (rs.next()) {
-                        yield(mapper(rs))
-                    }
+            val query = queryBuilder(sqlQuery)
+            connection.prepareStatement(query).executeQuery().use { rs ->
+                while (rs.next()) {
+                    yield(mapper(rs))
                 }
             }
         }.iterator()
@@ -60,14 +63,16 @@ class QueryableBuilder<T>(
 
         if (whereClauses.isNotEmpty()) {
             whereAndOrderClauses.append(" WHERE ")
-            whereClauses.forEachIndexed { index, (_, columnName, value, _) ->
+            whereClauses.forEachIndexed { index, (_, columnName, value) ->
                 if (index > 0) whereAndOrderClauses.append(" AND ")
                 val formattedValue =
                     when (value) {
                         null -> "IS NULL"
                         is String -> "'$value'"
+                        is Enum<*> -> "'$value'"
                         else -> value.toString()
                     }
+
                 if (value == null) {
                     whereAndOrderClauses.append("$columnName $formattedValue")
                 } else {
@@ -79,7 +84,7 @@ class QueryableBuilder<T>(
 
         if (orderByClauses.isNotEmpty()) {
             whereAndOrderClauses.append(" ORDER BY ")
-            orderByClauses.forEachIndexed { index, (_, columnName, _, _) ->
+            orderByClauses.forEachIndexed { index, (_, columnName, _) ->
                 if (index > 0) whereAndOrderClauses.append(", ")
                 whereAndOrderClauses.append(columnName)
                 orderedProps.add(orderByClauses[index])

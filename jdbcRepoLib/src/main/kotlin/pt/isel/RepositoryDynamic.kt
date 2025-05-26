@@ -72,11 +72,12 @@ fun <K : Any, T : Any, R : Repository<K, T>> loadDynamicRepo(
     val auxRepos = addDynAuxRepos(domainKlass, connection, repositories)
     val classifiers = buildClassifiers(domainKlass)
     val pk: KProperty<*> = buildPk(domainKlass)
+    val constructor = buildConstructor(domainKlass)
     val tableName = buildTableName(domainKlass)
+    val properties = buildPropList(constructor, classifiers, tableName)
     val getProps = buildDynamicGetPropInfo(domainKlass, generatedClassDesc, classifiers, tableName, repositories)
-    println("Building repository for $domainKlass")
-    println("With Aux Repositories: ${auxRepos.values} ")
-    val params = listOf(connection, pk, tableName) + auxRepos.values
+
+    val params = listOf(connection, pk, tableName, properties) + auxRepos.values
 
     return repositories.getOrPut(domainKlass) {
         buildRepositoryClassfile(
@@ -146,7 +147,8 @@ fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryByteArray(
                 clb.withSuperclass(SUPER_CLASS_DESC)
                 clb.declareFields(auxRepos)
                 clb.defineFieldGetters(generatedClassDesc, auxRepos)
-                val paramDescList = listOf(CONNECTION_DESC, KPROPERTY_DESC, CD_String) + List(auxRepos.size) { SUPER_CLASS_DESC }
+                val paramDescList = listOf(CONNECTION_DESC, KPROPERTY_DESC, CD_String, CD_Map) + List(auxRepos.size) { SUPER_CLASS_DESC }
+
                 clb.withMethod(
                     INIT_NAME,
                     MethodTypeDesc.of(
@@ -241,6 +243,12 @@ private fun ClassBuilder.declareFields(auxRepos: Map<KClass<*>, BaseRepository<A
         ACC_PUBLIC,
     )
 
+    withField(
+        "properties",
+        CD_Map,
+        ACC_PUBLIC,
+    )
+
     auxRepos.values.forEach { repo ->
         withField(
             repo::class.simpleName,
@@ -281,6 +289,22 @@ private fun ClassBuilder.defineFieldGetters(
                 generatedClassDesc,
                 "tableName",
                 CD_String,
+            )
+            cb.areturn()
+        }
+    }
+
+    withMethod(
+        "getProperties",
+        MethodTypeDesc.of(CD_Map),
+        ACC_PUBLIC,
+    ) { mb ->
+        mb.withCode { cb ->
+            cb.aload(THIS_SLOT)
+            cb.getfield(
+                generatedClassDesc,
+                "properties",
+                CD_Map,
             )
             cb.areturn()
         }
@@ -566,7 +590,8 @@ private fun CodeBuilder.loadVals(
 ) {
     val pkSlot = 2
     val tableNameSlot = 3
-    val reposStartSlot = 4
+    val propertiesSlot = 4
+    val reposStartSlot = 5
 
     aload(THIS_SLOT)
     aload(pkSlot)
@@ -582,6 +607,14 @@ private fun CodeBuilder.loadVals(
         generatedClassDesc,
         "tableName",
         CD_String,
+    )
+
+    aload(THIS_SLOT)
+    aload(propertiesSlot)
+    putfield(
+        generatedClassDesc,
+        "properties",
+        CD_Map,
     )
 
     repositories.values.forEachIndexed { index, repo ->

@@ -147,9 +147,9 @@ class MessageRepositoryTest {
         val allMessagesFromDevelopmentSentByCharlie =
             dynMsgRepo
                 .findAll()
-                .whereEquals(Message::channel, development)
+                .whereEquals(Message::channel, development.name)
                 .orderBy(Message::timestamp)
-                .whereEquals(Message::user, charlie)
+                .whereEquals(Message::user, charlie.id)
                 .iterator()
 
         val newMessage =
@@ -161,13 +161,15 @@ class MessageRepositoryTest {
             )
 
         assertEquals(
-            "Need help with debugging",
-            allMessagesFromDevelopmentSentByCharlie.next().content,
-        )
-        assertEquals(
             newMessage.content,
             allMessagesFromDevelopmentSentByCharlie.next().content,
         )
+        assertEquals(
+            "Only include relevant and reliable contents.",
+            allMessagesFromDevelopmentSentByCharlie.next().content,
+        )
         assertFalse { allMessagesFromDevelopmentSentByCharlie.hasNext() }
+
+        dynMsgRepo.deleteById(newMessage.id)
     }
 }

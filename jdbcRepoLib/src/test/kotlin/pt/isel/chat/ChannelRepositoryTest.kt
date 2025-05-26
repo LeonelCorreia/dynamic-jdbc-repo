@@ -105,19 +105,22 @@ class ChannelRepositoryTest {
                 .whereEquals(Channel::isReadOnly, true)
                 .iterator()
 
-        dynChannelRepo.insert(
-            "Surf",
-            ChannelType.PUBLIC,
-            System.currentTimeMillis(),
-            false,
-            400,
-            50,
-            true,
-            0L,
-        )
+        val newChannel =
+            dynChannelRepo.insert(
+                "Surf",
+                ChannelType.PUBLIC,
+                System.currentTimeMillis(),
+                false,
+                400,
+                50,
+                true,
+                0L,
+            )
 
         assertEquals("Support", channelsPublicAndReadOnly.next().name)
         assertEquals("Surf", channelsPublicAndReadOnly.next().name)
         assertFalse { channelsPublicAndReadOnly.hasNext() }
+
+        dynChannelRepo.deleteById(newChannel.name)
     }
 }

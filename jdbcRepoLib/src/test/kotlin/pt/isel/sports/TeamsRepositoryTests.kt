@@ -162,17 +162,18 @@ class TeamsRepositoryTests {
         val tennisTeams =
             dynTeamRepo
                 .findAll()
-                .whereEquals(Team::teamSport, tennis)
+                .whereEquals(Team::teamSport, tennis.name)
                 .orderBy(Team::id)
                 .iterator()
 
         val benfica = dynClubRepo.getById(2)
         assertNotNull(benfica)
-        dynTeamRepo.insert(
-            "Tennis Benfica B",
-            benfica,
-            tennis,
-        )
+        val newTeam =
+            dynTeamRepo.insert(
+                "Tennis Benfica B",
+                benfica,
+                tennis,
+            )
 
         assertEquals(
             "Sporting Tennis",
@@ -191,5 +192,7 @@ class TeamsRepositoryTests {
             tennisTeams.next().name,
         )
         assertFalse { tennisTeams.hasNext() }
+
+        dynTeamRepo.deleteById(newTeam.id)
     }
 }
