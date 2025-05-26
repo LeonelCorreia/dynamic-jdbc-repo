@@ -118,6 +118,15 @@ fun KClass<*>.isPrimitiveBoxed() =
         this == Byte::class ||
         this == Float::class
 
+fun setStatementParameters(
+    usedProps: List<SeqProps>,
+    stmt: PreparedStatement,
+) {
+    usedProps.forEachIndexed { index, prop ->
+        stmt.seqSetter(prop.value, index + 1, prop.classifier)
+    }
+}
+
 fun PreparedStatement.seqSetter(
     value: Any?,
     index: Int,

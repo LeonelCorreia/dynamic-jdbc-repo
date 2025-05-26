@@ -34,14 +34,23 @@ class QueryableBuilder<T>(
     }
 
     override fun <V> orderBy(prop: KProperty1<T, V>): Queryable<T> {
-        TODO("Not yet implemented")
+        val columnName = properties[prop] ?: throw IllegalArgumentException()
+        usedProps.add(
+            SeqProps(
+                Operation.ORDER,
+                columnName,
+                null,
+                prop.returnType.classifier as KClass<*>,
+            ),
+        )
+        return this
     }
-
+    /*
     override fun iterator(): Iterator<T> =
         sequence {
             connection.prepareStatement(queryBuilder(sqlQuery)).use { stmt ->
                 usedProps.forEachIndexed { index, (_, _, value, classifier) ->
-                    stmt.seqSetter(value, index, classifier)
+                    stmt.seqSetter(value, index + 1, classifier)
                 }
 
                 stmt.executeQuery().use { rs ->
@@ -50,9 +59,37 @@ class QueryableBuilder<T>(
                     }
                 }
             }
-        }.iterator()
+        }.iterator()*/
 
-    private fun queryBuilder(sql: String): String {
+    override fun iterator(): Iterator<T> =
+        object : Iterator<T> {
+            val stmt =
+                connection.prepareStatement(queryBuilder(sqlQuery)).apply {
+                    setStatementParameters(usedProps, this)
+                }
+            val rs: ResultSet = stmt.executeQuery()
+            var nextResult: Boolean? = null
+
+            override fun hasNext(): Boolean {
+                if (nextResult == null) {
+                    nextResult = rs.next()
+                    if (nextResult == false) {
+                        rs.close()
+                        stmt.close()
+                    }
+                }
+                return nextResult!!
+            }
+
+            override fun next(): T {
+                if (!hasNext()) throw NoSuchElementException()
+                val result = mapper(rs)
+                nextResult = null
+                return result
+            }
+        }
+
+    fun queryBuilder(sql: String): String {
         val whereClauses = usedProps.filter { it.oper == Operation.WHERE }
         val orderByClauses = usedProps.filter { it.oper == Operation.ORDER }
         val whereAndOrderClauses = StringBuilder()
