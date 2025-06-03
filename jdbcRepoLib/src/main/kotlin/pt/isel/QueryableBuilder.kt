@@ -83,7 +83,6 @@ class QueryableBuilder<T>(
             }
 
             override fun next(): T {
-                if (rs == null) rs = stmt.executeQuery()
                 if (!hasNext()) throw NoSuchElementException()
                 return try {
                     val result = mapper(rs!!)

@@ -148,7 +148,7 @@ fun <K : Any, T : Any, R : Repository<K, T>> buildRepositoryByteArray(
         ClassFile
             .of()
             .build(generatedClassDesc) { clb ->
-                // the class generated is a subclass of RepositoryReflect
+                // the class generated is a subclass of BaseRepository
                 clb.withSuperclass(SUPER_CLASS_DESC)
                 clb.declareFields(auxRepos)
                 clb.defineFieldGetters(generatedClassDesc, auxRepos)
@@ -414,18 +414,18 @@ private fun CodeBuilder.insertMethod(
 
 private fun CodeBuilder.prepareStatement(
     sql: String,
-    domainKcls: KClass<*>,
+    domainKlass: KClass<*>,
     targetSlot: Int,
 ) {
-    aload(0)
+    aload(THIS_SLOT)
     invokevirtual(ClassDesc.of("${PACKAGE_NAME}.BaseRepository"), "getConnection", MethodTypeDesc.of(CONNECTION_DESC))
     ldc(constantPool().stringEntry(sql))
 
-    val hasSerialPK = domainKcls.hasSerialPrimaryKey()
-    if (hasSerialPK) iconst_1()
+    val hasSerialPK = domainKlass.hasSerialPrimaryKey()
 
     val methodDesc =
         if (hasSerialPK) {
+            iconst_1()
             MethodTypeDesc.of(PREPARED_STM_DESC, String::class.descriptor(), Int::class.descriptor())
         } else {
             MethodTypeDesc.of(PREPARED_STM_DESC, String::class.descriptor())
@@ -449,7 +449,7 @@ private fun CodeBuilder.setPreparedStatementParams(
 }
 
 private fun CodeBuilder.executeUpdateAndReturn(
-    domainKcls: KClass<*>,
+    domainKlass: KClass<*>,
     insertParams: List<ParamInfo>,
     stmtSlot: Int,
     affectedSlot: Int,
@@ -465,10 +465,10 @@ private fun CodeBuilder.executeUpdateAndReturn(
     iload(affectedSlot)
     ifeq(labelNoAffected)
 
-    if (domainKcls.hasSerialPrimaryKey()) {
-        handleGeneratedKeyInsert(domainKcls, insertParams, stmtSlot, resultSetSlot, pkType)
+    if (domainKlass.hasSerialPrimaryKey()) {
+        handleGeneratedKeyInsert(domainKlass, insertParams, stmtSlot, resultSetSlot, pkType)
     } else {
-        buildDomainAndReturn(domainKcls, insertParams)
+        buildDomainAndReturn(domainKlass, insertParams)
     }
 
     labelBinding(labelNoAffected)
@@ -484,7 +484,7 @@ private fun CodeBuilder.executeUpdate(stmtSlot: Int) {
 }
 
 private fun CodeBuilder.handleGeneratedKeyInsert(
-    domainKcls: KClass<*>,
+    domainKlass: KClass<*>,
     insertParams: List<ParamInfo>,
     stmtSlot: Int,
     resultSetSlot: Int,
@@ -500,7 +500,7 @@ private fun CodeBuilder.handleGeneratedKeyInsert(
     invokeinterface(RESULTSET_DESC, "next", MethodTypeDesc.of(Boolean::class.descriptor()))
     ifeq(labelNoKeys)
 
-    new_(domainKcls.descriptor())
+    new_(domainKlass.descriptor())
     dup()
     aload(resultSetSlot)
     iconst_1()
@@ -509,9 +509,9 @@ private fun CodeBuilder.handleGeneratedKeyInsert(
     val orderedParameters = insertParams.sortedBy { it.ctorArg.index }
     orderedParameters.forEach { loadParameter(it.slot, it.cls) }
     invokespecial(
-        domainKcls.descriptor(),
+        domainKlass.descriptor(),
         INIT_NAME,
-        MethodTypeDesc.of(CD_void, domainKcls.primaryCtorArgs().map { it.type.descriptor() }),
+        MethodTypeDesc.of(CD_void, domainKlass.primaryCtorArgs().map { it.type.descriptor() }),
     )
     areturn()
 
